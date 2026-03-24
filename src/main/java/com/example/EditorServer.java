@@ -18,7 +18,7 @@ public class EditorServer extends WebSocketServer {
         super(new InetSocketAddress(PORT));
     }
 
-    // When a new user joins, send them the current document
+    // When a new user joins, send them the current d~~ocument
     @Override
     public void onOpen(WebSocket conn, ClientHandshake handshake) {
         System.out.println("New user connected: " + conn.getRemoteSocketAddress());
