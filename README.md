@@ -6,7 +6,7 @@ A real time collaborative document editor built with JavaFX and WebSocket.
 - Real time collaboration between multiple users
 - Text editing with live sync
 - WebSocket server and client
-- Coming soon: Bold, italic, tables, images, save to PDF and DOCX
+- Bold, italic, tables, images, save to PDF and DOCX
 
 ## How to run
 
@@ -25,7 +25,7 @@ mvn javafx:run
 ```
 
 ## Team
-jass
-aryan
-sandhu
-krish
+Jaskarandeep Singh
+Aryan Dhiman
+Amronder Singh Sandhu
+Krishna
