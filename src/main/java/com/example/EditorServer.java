@@ -5,60 +5,89 @@ import org.java_websocket.handshake.ClientHandshake;
 import org.java_websocket.server.WebSocketServer;
 
 import java.net.InetSocketAddress;
-import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
 
 public class EditorServer extends WebSocketServer {
 
-    private static final int PORT = 8887;
+    // ── Connected clients ────────────────────────────────────────
+    private static final Set<WebSocket> clients =
+        Collections.synchronizedSet(new HashSet<>());
 
-    //  This is the fix — server remembers the latest document
-    private String currentDocument = "";
+    // ── Current document in memory ───────────────────────────────
+    private static String currentDoc = "";
 
-    public EditorServer() {
-        super(new InetSocketAddress(PORT));
+    // ── Constructor ──────────────────────────────────────────────
+    public EditorServer(int port) {
+        super(new InetSocketAddress(port));
     }
 
-    // When a new user joins, send them the current d~~ocument
-    @Override
-    public void onOpen(WebSocket conn, ClientHandshake handshake) {
-        System.out.println("New user connected: " + conn.getRemoteSocketAddress());
-
-        // Send the latest document to the new user immediately
-        if (!currentDocument.isEmpty()) {
-            conn.send(currentDocument);
-        }
-    }
-
-    @Override
-    public void onClose(WebSocket conn, int code, String reason, boolean remote) {
-        System.out.println("User disconnected: " + conn.getRemoteSocketAddress());
-    }
-
-    // Save the latest document then broadcast to everyone else
-    @Override
-    public void onMessage(WebSocket sender, String message) {
-        System.out.println("Received change, broadcasting to all...");
-
-        // Remember the latest version
-        currentDocument = message;
-
-        // Send to everyone except the sender
-        Collection<WebSocket> allConnections = getConnections();
-        for (WebSocket client : allConnections) {
-            if (client != sender) {
-                client.send(message);
-            }
-        }
-    }
-
-    @Override
-    public void onError(WebSocket conn, Exception ex) {
-        System.out.println("Error: " + ex.getMessage());
-    }
-
+    // ── Server start ─────────────────────────────────────────────
     @Override
     public void onStart() {
-        System.out.println("Server started on port " + PORT);
-        System.out.println("Waiting for users to connect...");
+        System.out.println("Server started on port 8887");
+
+        // Initialize DB and load last saved document
+        DatabaseManager.initialize();
+        currentDoc = DatabaseManager.loadContent();
+
+        System.out.println("Document loaded. Version: "
+            + DatabaseManager.getCurrentVersion());
+    }
+
+    // ── New client connects ───────────────────────────────────────
+    @Override
+    public void onOpen(WebSocket conn, ClientHandshake handshake) {
+        clients.add(conn);
+        System.out.println("New client connected: "
+            + conn.getRemoteSocketAddress());
+
+        // Send current document to late joiner
+        if (currentDoc != null && !currentDoc.isEmpty()) {
+            conn.send(currentDoc);
+        }
+    }
+
+    // ── Client disconnects ────────────────────────────────────────
+    @Override
+    public void onClose(WebSocket conn, int code, String reason, boolean remote) {
+        clients.remove(conn);
+        System.out.println("Client disconnected: "
+            + conn.getRemoteSocketAddress());
+    }
+
+    // ── Message received from a client ────────────────────────────
+    @Override
+    public void onMessage(WebSocket sender, String message) {
+
+        // Update in-memory document
+        currentDoc = message;
+
+        // Broadcast to all OTHER clients
+        synchronized (clients) {
+            for (WebSocket client : clients) {
+                if (client != sender && client.isOpen()) {
+                    client.send(message);
+                }
+            }
+        }
+
+        // Save to MySQL
+        DatabaseManager.saveContent(message);
+    }
+
+    // ── Error handling ────────────────────────────────────────────
+    @Override
+    public void onError(WebSocket conn, Exception ex) {
+        System.err.println("Server error: " + ex.getMessage());
+        ex.printStackTrace();
+    }
+
+    // ── Main — entry point ────────────────────────────────────────
+    public static void main(String[] args) throws Exception {
+        EditorServer server = new EditorServer(8887);
+        server.start();
+        System.out.println("Collab Editor Server running on port 8887");
     }
 }
