@@ -27,5 +27,5 @@ mvn javafx:run
 ## Team
 Jaskarandeep Singh,
 Aryan Dhiman,
-Amronder Singh Sandhu,
+Amrinder Singh Sandhu,
 Krishna
