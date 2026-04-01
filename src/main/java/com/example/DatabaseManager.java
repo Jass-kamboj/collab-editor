@@ -14,6 +14,31 @@ public class DatabaseManager {
         return DriverManager.getConnection(URL, USER, PASSWORD);
     }
 
+    public boolean createUser(String username, String password) {
+    String sql = "INSERT INTO users (username, password) VALUES (?, ?)";
+    try (PreparedStatement stmt = connection.prepareStatement(sql)) {
+        stmt.setString(1, username);
+        stmt.setString(2, password); // plain text for now, hash later
+        stmt.executeUpdate();
+        return true;
+    } catch (SQLException e) {
+        // DUPLICATE username hits here — return false
+        return false;
+    }
+}
+
+public boolean validateUser(String username, String password) {
+    String sql = "SELECT id FROM users WHERE username = ? AND password = ?";
+    try (PreparedStatement stmt = connection.prepareStatement(sql)) {
+        stmt.setString(1, username);
+        stmt.setString(2, password);
+        ResultSet rs = stmt.executeQuery();
+        return rs.next(); // true if a row matched
+    } catch (SQLException e) {
+        e.printStackTrace();
+        return false;
+    }
+}
     // ── Initialize — called once when server starts ───────────────
     // Creates a default document row if none exists
     public static void initialize() {
@@ -53,7 +78,7 @@ public class DatabaseManager {
     }
 
     // ── Save content — updates documents + inserts into history ──
-    public static void saveContent(String html) {
+    public static void saveContent(String html, String changedBy) {
         Connection conn = null;
         try {
             conn = getConnection();
@@ -84,11 +109,12 @@ public class DatabaseManager {
 
             // Step 3 — insert snapshot into document_history
             String insertHistory = "INSERT INTO document_history "
-                                 + "(doc_id, content, version) VALUES (?, ?, ?)";
+                                 + "(doc_id, content, version, changed_by) VALUES (?, ?, ?, ?)";
             try (PreparedStatement stmt = conn.prepareStatement(insertHistory)) {
                 stmt.setString(1, DOC_ID);
-                stmt.setString(2, html);
+                stmt.setString(2, html);  
                 stmt.setInt(3, newVersion);
+                stmt.setString(4, changedBy);
                 stmt.executeUpdate();
             }
 

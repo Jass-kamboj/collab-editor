@@ -1,6 +1,7 @@
 package com.example;
 
 import javafx.application.Application;
+import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.scene.layout.Priority;
 import javafx.scene.Scene;
@@ -12,10 +13,20 @@ public class MainApp extends Application {
     @Override
     public void start(Stage stage) {
 
+        // ── Login first ──────────────────────────────────────────
+        DatabaseManager db = new DatabaseManager();
+        LoginScreen loginScreen = new LoginScreen(db);
+        String username = loginScreen.show();
+
+        if (username == null) {
+            Platform.exit(); // user closed window without logging in
+            return;
+        }
+
         // ── Create core components ───────────────────────────────
-        EditorPane         editorPane = new EditorPane();
-        EditorBridge       bridge     = new EditorBridge(editorPane);
-        ToolbarController  toolbar    = new ToolbarController(editorPane, bridge, stage);
+        EditorPane        editorPane = new EditorPane();
+        EditorBridge      bridge     = new EditorBridge(editorPane, username); // ← username passed in
+        ToolbarController toolbar    = new ToolbarController(editorPane, bridge, stage);
 
         // ── Layout ───────────────────────────────────────────────
         VBox root = new VBox(toolbar.getToolbar(), editorPane.getView());

@@ -1,15 +1,20 @@
 package com.example;
 
+import com.google.gson.JsonObject;
 import javafx.application.Platform;
+import com.google.gson.JsonParser;
+
 
 public class EditorBridge {
 
     private final EditorPane editorPane;
     private EditorClient client;
     private boolean applyingRemote = false;
+    private final String username;
 
-    public EditorBridge(EditorPane editorPane) {
+    public EditorBridge(EditorPane editorPane, String username) {
         this.editorPane = editorPane;
+        this.username = username;
     }
 
     /**
@@ -19,7 +24,10 @@ public class EditorBridge {
     public void onContentChanged(String html) {
         Platform.runLater(() -> {
             if (!applyingRemote && client != null && client.isOpen()) {
-                client.send(html);
+                JsonObject msg = new JsonObject();
+                msg.addProperty("user", username);  // ← new
+                msg.addProperty("html", html);       // ← new
+                client.send(msg.toString());          // ← changed
             }
         });
     }
@@ -28,11 +36,13 @@ public class EditorBridge {
      * Called by EditorClient when server broadcasts a peer's change.
      * Applies the incoming HTML to the editor without triggering another send.
      */
-    public void applyRemoteChange(String html) {
+    public void applyRemoteChange(String rawMessage) {
         Platform.runLater(() -> {
-            applyingRemote = true;
-            editorPane.setContent(html);
-            applyingRemote = false;
+            JsonObject msg = JsonParser.parseString(rawMessage).getAsJsonObject();
+            String html = msg.get("html").getAsString();
+             applyingRemote = true; 
+             editorPane.setContent(html);  
+             applyingRemote = false;
         });
     }
 
@@ -42,7 +52,10 @@ public class EditorBridge {
      */
     public void pushChange() {
         if (!applyingRemote && client != null && client.isOpen()) {
-            client.send(editorPane.getContent());
+            JsonObject msg = new JsonObject();
+            msg.addProperty("user", username);
+            msg.addProperty("html", editorPane.getContent());
+            client.send(msg.toString());
         }
     }
 
