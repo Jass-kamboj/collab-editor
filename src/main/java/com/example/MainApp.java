@@ -29,8 +29,8 @@ public class MainApp extends Application {
         ToolbarController toolbar    = new ToolbarController(editorPane, bridge, stage);
 
         // ── Layout ───────────────────────────────────────────────
-        VBox root = new VBox(toolbar.getToolbar(), editorPane.getView());
-        VBox.setVgrow(editorPane.getView(), Priority.ALWAYS);
+        VBox root = new VBox(toolbar.getToolbar(), editorPane.getRoot());
+        VBox.setVgrow(editorPane.getRoot(), Priority.ALWAYS);
         root.setPadding(new Insets(0));
 
         // ── Scene & Stage ────────────────────────────────────────

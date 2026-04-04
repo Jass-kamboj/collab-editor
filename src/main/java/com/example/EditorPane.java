@@ -1,25 +1,64 @@
 package com.example;
 
+import javafx.animation.PauseTransition;
 import javafx.concurrent.Worker;
+import javafx.geometry.Pos;
+import javafx.scene.control.Label;
+import javafx.scene.layout.StackPane;
 import javafx.scene.web.WebEngine;
 import javafx.scene.web.WebView;
+import javafx.util.Duration;
 
 public class EditorPane {
 
     private final WebView webView;
     private final WebEngine engine;
+    private final StackPane root;          // ← new
+    private final Label editingLabel;      // ← new
+    private final PauseTransition fadeTimer; // ← new
 
     public EditorPane() {
         webView = new WebView();
         engine  = webView.getEngine();
         engine.loadContent(buildHtml());
+
+        // ── Editing indicator ──────────────────────────────────────── // ← new
+        editingLabel = new Label();
+        editingLabel.setStyle(
+            "-fx-text-fill: #6c757d;" +
+            "-fx-font-size: 12px;" +
+            "-fx-font-style: italic;" +
+            "-fx-background-color: rgba(255,255,255,0.75);" +
+            "-fx-background-radius: 4;" +
+            "-fx-padding: 2 8 2 8;"
+        );
+        editingLabel.setVisible(false);
+
+        // Float it in the top-right corner of the stack            // ← new
+        StackPane.setAlignment(editingLabel, Pos.TOP_RIGHT);
+
+        // Wrap WebView + label together                             // ← new
+        root = new StackPane(webView, editingLabel);
+
+        // Auto-hide after 2 s of silence                           // ← new
+        fadeTimer = new PauseTransition(Duration.seconds(2));
+        fadeTimer.setOnFinished(e -> editingLabel.setVisible(false));
+    }
+
+    /** Return this instead of getView() wherever you add EditorPane to your scene. */ // ← new
+    public StackPane getRoot() { return root; }
+
+    /** Called by EditorBridge when a peer's message arrives. */    // ← new
+    public void showEditingIndicator(String user) {
+        editingLabel.setText(user + " is editing…");
+        editingLabel.setVisible(true);
+        fadeTimer.playFromStart();
     }
 
     /** Called once after the page loads — injects bridge and connects WebSocket. */
     public void init(EditorBridge bridge) {
         engine.getLoadWorker().stateProperty().addListener((obs, old, state) -> {
             if (state == Worker.State.SUCCEEDED) {
-                // No JSObject needed — JS signals Java by writing to document.title
                 engine.executeScript("""
                     var editor = document.getElementById('editor');
                     var debounce;
@@ -31,12 +70,10 @@ public class EditorPane {
                     });
                 """);
 
-                // Java listens for the title signal
                 engine.titleProperty().addListener((o, oldTitle, title) -> {
                     if (title != null && title.startsWith("##CONTENT##")) {
                         String html = title.substring("##CONTENT##".length());
                         bridge.onContentChanged(html);
-                        // Reset so the next keystroke fires the listener again
                         engine.executeScript("document.title = '';");
                     }
                 });
@@ -46,7 +83,7 @@ public class EditorPane {
         });
     }
 
-    public WebView getView() { return webView; }
+    public WebView getView()  { return webView; }
 
     public String getContent() {
         return (String) engine.executeScript(

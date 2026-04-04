@@ -40,8 +40,10 @@ public class EditorBridge {
         Platform.runLater(() -> {
             JsonObject msg = JsonParser.parseString(rawMessage).getAsJsonObject();
             String html = msg.get("html").getAsString();
-             applyingRemote = true; 
-             editorPane.setContent(html);  
+            String user = msg.has("user") ? msg.get("user").getAsString() : "Someone"; 
+            applyingRemote = true; 
+             editorPane.setContent(html);
+             editorPane.showEditingIndicator(user);
              applyingRemote = false;
         });
     }
