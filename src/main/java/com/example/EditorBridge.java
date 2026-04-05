@@ -21,12 +21,13 @@ public class EditorBridge {
      * Called from JS (on input debounce — every 300ms after user stops typing).
      * Sends the current HTML to the WebSocket server.
      */
-    public void onContentChanged(String html) {
+    public void onContentChanged(String html,int cursorOffset) {
         Platform.runLater(() -> {
             if (!applyingRemote && client != null && client.isOpen()) {
                 JsonObject msg = new JsonObject();
                 msg.addProperty("user", username);  // ← new
                 msg.addProperty("html", html);       // ← new
+                msg.addProperty("cursor", cursorOffset);
                 client.send(msg.toString());          // ← changed
             }
         });
@@ -40,10 +41,15 @@ public class EditorBridge {
         Platform.runLater(() -> {
             JsonObject msg = JsonParser.parseString(rawMessage).getAsJsonObject();
             String html = msg.get("html").getAsString();
-            String user = msg.has("user") ? msg.get("user").getAsString() : "Someone"; 
+            int cursor    = msg.has("cursor") ? msg.get("cursor").getAsInt()     : -1;
+            String user = msg.has("user") ? msg.get("user").getAsString() : "Someone";
+
+            System.out.println("DEBUG remote: user=" + user + " cursor=" + cursor);
+
             applyingRemote = true; 
              editorPane.setContent(html);
              editorPane.showEditingIndicator(user);
+             if (cursor >= 0) editorPane.showRemoteCursor(user, cursor);
              applyingRemote = false;
         });
     }
@@ -57,6 +63,7 @@ public class EditorBridge {
             JsonObject msg = new JsonObject();
             msg.addProperty("user", username);
             msg.addProperty("html", editorPane.getContent());
+             msg.addProperty("cursor", 0);
             client.send(msg.toString());
         }
     }
