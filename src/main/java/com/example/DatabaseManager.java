@@ -1,135 +1,190 @@
 package com.example;
 
 import java.sql.*;
+import java.util.ArrayList;
+import java.util.List;
 
 public class DatabaseManager {
 
-    // ── Connection config ────────────────────────────────────────
     private static final String URL      = "jdbc:mysql://localhost:3306/collabeditor";
     private static final String USER     = "root";
     private static final String PASSWORD = "Kamboj@14767";
-    private static final String DOC_ID   = "doc1";
 
-    // ── Get connection ───────────────────────────────────────────
     private static Connection getConnection() throws SQLException {
         return DriverManager.getConnection(URL, USER, PASSWORD);
     }
 
-    // ── Create user — returns false if username already taken ────
+    // ── Auth ─────────────────────────────────────────────────────
     public boolean createUser(String username, String password) {
         String sql = "INSERT INTO users (username, password) VALUES (?, ?)";
-        try (Connection conn = getConnection();                        // ← fixed
+        try (Connection conn = getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, username);
             stmt.setString(2, password);
             stmt.executeUpdate();
             return true;
         } catch (SQLException e) {
-            return false; // duplicate username hits here
+            return false;
         }
     }
 
-    // ── Validate user — returns true if credentials match ────────
     public boolean validateUser(String username, String password) {
         String sql = "SELECT id FROM users WHERE username = ? AND password = ?";
-        try (Connection conn = getConnection();                        // ← fixed
+        try (Connection conn = getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, username);
             stmt.setString(2, password);
-            ResultSet rs = stmt.executeQuery();
-            return rs.next();
+            return stmt.executeQuery().next();
         } catch (SQLException e) {
             e.printStackTrace();
             return false;
         }
     }
 
-    // ── Initialize — called once when server starts ───────────────
+    // ── Init ─────────────────────────────────────────────────────
     public static void initialize() {
-
-        // Create users table if it doesn't exist yet              ← new
         String createUsers = "CREATE TABLE IF NOT EXISTS users ("
-                           + "id INT AUTO_INCREMENT PRIMARY KEY, "
-                           + "username VARCHAR(50) UNIQUE NOT NULL, "
-                           + "password VARCHAR(255) NOT NULL, "
-                           + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)";
+                + "id INT AUTO_INCREMENT PRIMARY KEY, "
+                + "username VARCHAR(50) UNIQUE NOT NULL, "
+                + "password VARCHAR(255) NOT NULL, "
+                + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)";
 
-        // Create document_history with changed_by if not exists   ← new
+        String createDocs = "CREATE TABLE IF NOT EXISTS documents ("
+                + "id INT AUTO_INCREMENT PRIMARY KEY, "
+                + "title VARCHAR(255) NOT NULL DEFAULT 'Untitled Document', "
+                + "content LONGTEXT, "
+                + "version INT DEFAULT 0, "
+                + "created_by VARCHAR(50), "
+                + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)";
+
         String createHistory = "CREATE TABLE IF NOT EXISTS document_history ("
-                             + "id INT AUTO_INCREMENT PRIMARY KEY, "
-                             + "doc_id VARCHAR(50), "
-                             + "content LONGTEXT, "
-                             + "version INT, "
-                             + "changed_by VARCHAR(50), "
-                             + "saved_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)";
-
-        String createDoc = "INSERT IGNORE INTO documents (id, title, content, version) "
-                         + "VALUES (?, 'Untitled Document', '', 0)";
+                + "id INT AUTO_INCREMENT PRIMARY KEY, "
+                + "doc_id INT, "
+                + "content LONGTEXT, "
+                + "version INT, "
+                + "changed_by VARCHAR(50), "
+                + "saved_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)";
 
         try (Connection conn = getConnection()) {
             conn.createStatement().executeUpdate(createUsers);
+            conn.createStatement().executeUpdate(createDocs);
             conn.createStatement().executeUpdate(createHistory);
-            try (PreparedStatement stmt = conn.prepareStatement(createDoc)) {
-                stmt.setString(1, DOC_ID);
-                stmt.executeUpdate();
-            }
             System.out.println("Database initialized.");
         } catch (SQLException e) {
             System.err.println("DB init failed: " + e.getMessage());
         }
     }
 
-    // ── Load latest content from documents table ─────────────────
-    public static String loadContent() {
+    // ── Document CRUD ─────────────────────────────────────────────
+    public static int createDocument(String title, String createdBy) {
+        String sql = "INSERT INTO documents (title, content, version, created_by) "
+                   + "VALUES (?, '', 0, ?)";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+            stmt.setString(1, title);
+            stmt.setString(2, createdBy);
+            stmt.executeUpdate();
+            ResultSet rs = stmt.getGeneratedKeys();
+            if (rs.next()) return rs.getInt(1);
+        } catch (SQLException e) {
+            System.err.println("Create doc failed: " + e.getMessage());
+        }
+        return -1;
+    }
+
+    public static List<int[]> listDocuments() {
+        // returns list of [id, title] as int[] — we use Object[] below
+        return new ArrayList<>(); // placeholder — see listDocumentsFull()
+    }
+
+    public static List<String[]> listDocumentsFull() {
+        // returns [id, title, created_by, created_at]
+        List<String[]> docs = new ArrayList<>();
+        String sql = "SELECT id, title, created_by, created_at FROM documents ORDER BY created_at DESC";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            ResultSet rs = stmt.executeQuery();
+            while (rs.next()) {
+                docs.add(new String[]{
+                    String.valueOf(rs.getInt("id")),
+                    rs.getString("title"),
+                    rs.getString("created_by"),
+                    rs.getString("created_at")
+                });
+            }
+        } catch (SQLException e) {
+            System.err.println("List docs failed: " + e.getMessage());
+        }
+        return docs;
+    }
+
+    public static boolean renameDocument(int docId, String newTitle) {
+        String sql = "UPDATE documents SET title = ? WHERE id = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, newTitle);
+            stmt.setInt(2, docId);
+            return stmt.executeUpdate() > 0;
+        } catch (SQLException e) {
+            System.err.println("Rename failed: " + e.getMessage());
+            return false;
+        }
+    }
+
+    public static boolean deleteDocument(int docId) {
+        String sql = "DELETE FROM documents WHERE id = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setInt(1, docId);
+            return stmt.executeUpdate() > 0;
+        } catch (SQLException e) {
+            System.err.println("Delete doc failed: " + e.getMessage());
+            return false;
+        }
+    }
+
+    // ── Content ───────────────────────────────────────────────────
+    public static String loadContent(int docId) {
         String sql = "SELECT content FROM documents WHERE id = ?";
         try (Connection conn = getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
-
-            stmt.setString(1, DOC_ID);
+            stmt.setInt(1, docId);
             ResultSet rs = stmt.executeQuery();
-            if (rs.next()) {
-                String content = rs.getString("content");
-                System.out.println("Document loaded from DB.");
-                return content != null ? content : "";
-            }
-
+            if (rs.next()) return rs.getString("content") != null ? rs.getString("content") : "";
         } catch (SQLException e) {
-            System.err.println("DB load failed: " + e.getMessage());
+            System.err.println("Load failed: " + e.getMessage());
         }
         return "";
     }
 
-    // ── Save content — updates documents + inserts into history ──
-    public static void saveContent(String html, String changedBy) {
+    public static void saveContent(int docId, String html, String changedBy) {
         Connection conn = null;
         try {
             conn = getConnection();
             conn.setAutoCommit(false);
 
             int currentVersion = 0;
-            String getVersion = "SELECT version FROM documents WHERE id = ?";
-            try (PreparedStatement stmt = conn.prepareStatement(getVersion)) {
-                stmt.setString(1, DOC_ID);
+            try (PreparedStatement stmt = conn.prepareStatement(
+                    "SELECT version FROM documents WHERE id = ?")) {
+                stmt.setInt(1, docId);
                 ResultSet rs = stmt.executeQuery();
-                if (rs.next()) {
-                    currentVersion = rs.getInt("version");
-                }
+                if (rs.next()) currentVersion = rs.getInt("version");
             }
 
             int newVersion = currentVersion + 1;
 
-            String updateDoc = "UPDATE documents SET content = ?, version = ? WHERE id = ?";
-            try (PreparedStatement stmt = conn.prepareStatement(updateDoc)) {
+            try (PreparedStatement stmt = conn.prepareStatement(
+                    "UPDATE documents SET content = ?, version = ? WHERE id = ?")) {
                 stmt.setString(1, html);
                 stmt.setInt(2, newVersion);
-                stmt.setString(3, DOC_ID);
+                stmt.setInt(3, docId);
                 stmt.executeUpdate();
             }
 
-            String insertHistory = "INSERT INTO document_history "
-                                 + "(doc_id, content, version, changed_by) VALUES (?, ?, ?, ?)";
-            try (PreparedStatement stmt = conn.prepareStatement(insertHistory)) {
-                stmt.setString(1, DOC_ID);
+            try (PreparedStatement stmt = conn.prepareStatement(
+                    "INSERT INTO document_history (doc_id, content, version, changed_by) "
+                  + "VALUES (?, ?, ?, ?)")) {
+                stmt.setInt(1, docId);
                 stmt.setString(2, html);
                 stmt.setInt(3, newVersion);
                 stmt.setString(4, changedBy);
@@ -137,52 +192,25 @@ public class DatabaseManager {
             }
 
             conn.commit();
-            System.out.println("Saved to DB. Version: " + newVersion + " by " + changedBy);
+            System.out.println("Saved doc " + docId + " v" + newVersion + " by " + changedBy);
 
         } catch (SQLException e) {
-            System.err.println("DB save failed: " + e.getMessage());
-            if (conn != null) {
-                try { conn.rollback(); } catch (SQLException ex) { ex.printStackTrace(); }
-            }
+            System.err.println("Save failed: " + e.getMessage());
+            try { if (conn != null) conn.rollback(); } catch (SQLException ex) { ex.printStackTrace(); }
         } finally {
-            if (conn != null) {
-                try { conn.close(); } catch (SQLException ex) { ex.printStackTrace(); }
-            }
+            try { if (conn != null) conn.close(); } catch (SQLException ex) { ex.printStackTrace(); }
         }
     }
 
-    // ── Load a specific version from history ─────────────────────
-    public static String loadVersion(int version) {
-        String sql = "SELECT content FROM document_history WHERE doc_id = ? AND version = ?";
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
-
-            stmt.setString(1, DOC_ID);
-            stmt.setInt(2, version);
-            ResultSet rs = stmt.executeQuery();
-            if (rs.next()) {
-                System.out.println("Loaded version " + version + " from history.");
-                return rs.getString("content");
-            }
-
-        } catch (SQLException e) {
-            System.err.println("DB version load failed: " + e.getMessage());
-        }
-        return "";
-    }
-
-    // ── Get current version number ────────────────────────────────
-    public static int getCurrentVersion() {
+    public static int getCurrentVersion(int docId) {
         String sql = "SELECT version FROM documents WHERE id = ?";
         try (Connection conn = getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
-
-            stmt.setString(1, DOC_ID);
+            stmt.setInt(1, docId);
             ResultSet rs = stmt.executeQuery();
             if (rs.next()) return rs.getInt("version");
-
         } catch (SQLException e) {
-            System.err.println("DB version check failed: " + e.getMessage());
+            System.err.println("Version check failed: " + e.getMessage());
         }
         return 0;
     }

@@ -6,15 +6,16 @@ import com.google.gson.JsonParser;
 
 
 public class EditorBridge {
-
+    private final int docId;
     private final EditorPane editorPane;
     private EditorClient client;
     private boolean applyingRemote = false;
     private final String username;
 
-    public EditorBridge(EditorPane editorPane, String username) {
+    public EditorBridge(EditorPane editorPane, String username, int docId) {
         this.editorPane = editorPane;
         this.username = username;
+        this.docId = docId;
     }
 
     /**
@@ -70,7 +71,7 @@ public class EditorBridge {
 
     public void connectWebSocket() {
         try {
-            client = new EditorClient("ws://localhost:8887", this);
+            client = new EditorClient("ws://localhost:8887", this, docId);
             client.connect();
             System.out.println("WebSocket connecting...");
         } catch (Exception e) {
