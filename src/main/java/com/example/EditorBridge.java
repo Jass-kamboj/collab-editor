@@ -68,6 +68,22 @@ public class EditorBridge {
             client.send(msg.toString());
         }
     }
+    public void restoreVersion(String html) {
+    Platform.runLater(() -> {
+        if (client != null && client.isOpen()) {
+            JsonObject msg = new JsonObject();
+            msg.addProperty("type", "restore");
+            msg.addProperty("user", username);
+            msg.addProperty("html", html);
+            msg.addProperty("cursor", 0);
+            applyingRemote = true;
+            editorPane.setContent(html);
+            applyingRemote = false;
+            client.send(msg.toString());
+        }
+    });
+    }
+    public int getDocId() { return docId; }
 
     public void connectWebSocket() {
         try {

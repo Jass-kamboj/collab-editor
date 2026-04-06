@@ -115,6 +115,12 @@ public class ToolbarController {
                 bridge.pushChange();
             }
         });
+        // ── History ─────────────────────────────────────────────
+        Button historyBtn = new Button("History");
+        historyBtn.setOnAction(e -> {
+            VersionHistoryScreen history = new VersionHistoryScreen(bridge, editor);
+            history.show();
+        });
 
         // ── Assemble Toolbar ────────────────────────────────────
         toolbar = new ToolBar(
@@ -124,7 +130,9 @@ public class ToolbarController {
             new Separator(),
             tableBtn, imageBtn,
             new Separator(),
-            saveDocx, savePdf, openDocx
+            saveDocx, savePdf, openDocx,
+            new Separator(),
+            historyBtn
         );
     }
 

@@ -75,6 +75,34 @@ public class EditorServer extends WebSocketServer {
             }
             return;
         }
+        if (type.equals("restore")) {
+    String html = msg.get("html").getAsString();
+    String user = msg.get("user").getAsString();
+    Integer docId = connRoom.get(sender);
+    if (docId == null) return;
+
+    docContents.put(docId, html);
+
+    // Notify all clients including sender
+    JsonObject notify = new JsonObject();
+    notify.addProperty("type", "restore");
+    notify.addProperty("user", user);
+    notify.addProperty("html", html);
+    notify.addProperty("cursor", 0);
+
+    Set<WebSocket> room = rooms.get(docId);
+    if (room != null) {
+        synchronized (room) {
+            for (WebSocket client : room) {
+                if (client.isOpen()) {
+                    client.send(notify.toString());
+                }
+            }
+        }
+    }
+    DatabaseManager.saveContent(docId, html, user + " (restored)");
+    return;
+    }
 
         // ── Regular edit ─────────────────────────────────────────
         String html = msg.get("html").getAsString();

@@ -214,4 +214,26 @@ public class DatabaseManager {
         }
         return 0;
     }
+    public static List<String[]> getHistory(int docId) {
+    // returns [version, changed_by, saved_at, content]
+    List<String[]> history = new ArrayList<>();
+    String sql = "SELECT version, changed_by, saved_at, content "
+               + "FROM document_history WHERE doc_id = ? ORDER BY version DESC";
+    try (Connection conn = getConnection();
+         PreparedStatement stmt = conn.prepareStatement(sql)) {
+        stmt.setInt(1, docId);
+        ResultSet rs = stmt.executeQuery();
+        while (rs.next()) {
+            history.add(new String[]{
+                String.valueOf(rs.getInt("version")),
+                rs.getString("changed_by"),
+                rs.getString("saved_at"),
+                rs.getString("content")
+            });
+        }
+    } catch (SQLException e) {
+        System.err.println("Get history failed: " + e.getMessage());
+    }
+    return history;
+  }
 }
