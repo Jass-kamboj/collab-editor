@@ -41,4 +41,26 @@ public class EditorClient extends WebSocketClient {
     public void onError(Exception ex) {
         ex.printStackTrace();
     }
+        public void sendPageEdit(int pageIndex, String html, String user) {
+        JsonObject msg = new JsonObject();
+        msg.addProperty("type", "page_edit");
+        msg.addProperty("pageIndex", pageIndex);
+        msg.addProperty("html", html);
+        msg.addProperty("user", user);
+        send(msg.toString());
+    }
+
+    public void requestPageSwitch(int pageIndex) {
+        JsonObject msg = new JsonObject();
+        msg.addProperty("type", "page_switch");
+        msg.addProperty("pageIndex", pageIndex);
+        send(msg.toString());
+    }
+
+    public void sendPageAdd(int pageIndex) {
+        JsonObject msg = new JsonObject();
+        msg.addProperty("type", "page_add");
+        msg.addProperty("pageIndex", pageIndex);
+        send(msg.toString());
+    }
 }

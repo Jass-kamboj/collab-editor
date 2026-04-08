@@ -118,9 +118,22 @@ public class ToolbarController {
         // ── History ─────────────────────────────────────────────
         Button historyBtn = new Button("History");
         historyBtn.setOnAction(e -> {
-            VersionHistoryScreen history = new VersionHistoryScreen(bridge, editor);
+            VersionHistoryScreen history = new VersionHistoryScreen(bridge);
             history.show();
         });
+
+          // ── Zoom Controls ────────────────────────────────────────────
+        Button zoomOut = new Button("−");
+        Button zoomIn  = new Button("+");
+        Label zoomPct  = new Label("100%");
+        zoomPct.setStyle("-fx-min-width: 40px; -fx-alignment: center;");
+        zoomOut.setStyle("-fx-min-width: 28px;");
+        zoomIn.setStyle("-fx-min-width: 28px;");
+
+        editor.setZoomLabel(zoomPct);   // keep label in sync with Ctrl+Scroll too
+
+        zoomOut.setOnAction(e -> editor.adjustZoom(-0.1));
+        zoomIn.setOnAction(e ->  editor.adjustZoom( 0.1));
 
         // ── Assemble Toolbar ────────────────────────────────────
         toolbar = new ToolBar(
@@ -132,12 +145,13 @@ public class ToolbarController {
             new Separator(),
             saveDocx, savePdf, openDocx,
             new Separator(),
-            historyBtn
-        );
+            historyBtn,
+            new Separator(),
+            zoomOut, zoomPct, zoomIn
+        );   
     }
 
     public ToolBar getToolbar() { return toolbar; }
-
     // ── Helper ──────────────────────────────────────────────────
     private File showSaveDialog(Stage stage, String title, String desc, String ext) {
         FileChooser fc = new FileChooser();

@@ -11,6 +11,9 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class EditorServer extends WebSocketServer {
+    
+    // pageContents: "docId:pageIndex" → html
+    private static final Map<String, String> pageContents = new ConcurrentHashMap<>();
 
     // docId → set of clients in that room
     private static final Map<Integer, Set<WebSocket>> rooms = new ConcurrentHashMap<>();
@@ -73,6 +76,16 @@ public class EditorServer extends WebSocketServer {
                 init.addProperty("html", content);
                 sender.send(init.toString());
             }
+            // Send page count so client knows how many pages exist
+            int pageCount = DatabaseManager.getPageCount(docId);
+            if (pageCount == 0) {
+                DatabaseManager.ensurePageExists(docId, 0);
+                pageCount = 1;
+            }
+                JsonObject meta = new JsonObject();
+                meta.addProperty("type", "pageMeta");
+                meta.addProperty("pageCount", pageCount);
+                sender.send(meta.toString());
             return;
         }
         if (type.equals("restore")) {
@@ -103,7 +116,67 @@ public class EditorServer extends WebSocketServer {
     DatabaseManager.saveContent(docId, html, user + " (restored)");
     return;
     }
+    if (type.equals("page_edit")) {
+        int pageIndex = msg.get("pageIndex").getAsInt();
+        String html   = msg.get("html").getAsString();
+        String user   = msg.get("user").getAsString();
+        Integer docId = connRoom.get(sender);
+        if (docId == null) return;
 
+    String key = docId + ":" + pageIndex;
+    pageContents.put(key, html);
+
+    // Broadcast to room (exclude sender)
+    Set<WebSocket> room = rooms.get(docId);
+    if (room != null) {
+        synchronized (room) {
+            for (WebSocket client : room) {
+                if (client != sender && client.isOpen()) {
+                    client.send(message);
+                }
+            }
+        }
+    }
+    DatabaseManager.savePage(docId, pageIndex, html, user);
+    return;
+}
+
+    if (type.equals("page_switch")) {
+        // One client switched page — send them that page's content
+        int pageIndex = msg.get("pageIndex").getAsInt();
+        Integer docId = connRoom.get(sender);
+        if (docId == null) return;
+
+        DatabaseManager.ensurePageExists(docId, pageIndex);
+        String key = docId + ":" + pageIndex;
+        String content = pageContents.getOrDefault(key, DatabaseManager.loadPage(docId, pageIndex));
+        pageContents.put(key, content);
+
+        JsonObject resp = new JsonObject();
+        resp.addProperty("type", "page_content");
+        resp.addProperty("pageIndex", pageIndex);
+        resp.addProperty("html", content);
+        sender.send(resp.toString());
+        return;
+    }
+
+    if (type.equals("page_add")) {
+        Integer docId = connRoom.get(sender);
+        if (docId == null) return;
+        int newIndex = msg.get("pageIndex").getAsInt();
+        DatabaseManager.ensurePageExists(docId, newIndex);
+
+        // Notify whole room
+        Set<WebSocket> room = rooms.get(docId);
+        if (room != null) {
+            synchronized (room) {
+                for (WebSocket client : room) {
+                    if (client.isOpen()) client.send(message);
+                }
+            }
+        }
+        return;
+    }
         // ── Regular edit ─────────────────────────────────────────
         String html = msg.get("html").getAsString();
         String user = msg.get("user").getAsString();

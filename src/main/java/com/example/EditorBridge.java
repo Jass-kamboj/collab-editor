@@ -22,16 +22,12 @@ public class EditorBridge {
      * Called from JS (on input debounce — every 300ms after user stops typing).
      * Sends the current HTML to the WebSocket server.
      */
-    public void onContentChanged(String html,int cursorOffset) {
-        Platform.runLater(() -> {
-            if (!applyingRemote && client != null && client.isOpen()) {
-                JsonObject msg = new JsonObject();
-                msg.addProperty("user", username);  // ← new
-                msg.addProperty("html", html);       // ← new
-                msg.addProperty("cursor", cursorOffset);
-                client.send(msg.toString());          // ← changed
-            }
-        });
+    public void onContentChanged(String html, int cursorOffset) {
+    Platform.runLater(() -> {
+        if (!applyingRemote && client != null && client.isOpen()) {
+            client.sendPageEdit(editorPane.getCurrentPage(), html, username);
+        }
+    });
     }
 
     /**
@@ -39,20 +35,38 @@ public class EditorBridge {
      * Applies the incoming HTML to the editor without triggering another send.
      */
     public void applyRemoteChange(String rawMessage) {
-        Platform.runLater(() -> {
-            JsonObject msg = JsonParser.parseString(rawMessage).getAsJsonObject();
-            String html = msg.get("html").getAsString();
-            int cursor    = msg.has("cursor") ? msg.get("cursor").getAsInt()     : -1;
-            String user = msg.has("user") ? msg.get("user").getAsString() : "Someone";
+    Platform.runLater(() -> {
+        JsonObject msg = JsonParser.parseString(rawMessage).getAsJsonObject();
+        String type = msg.has("type") ? msg.get("type").getAsString() : "edit";
 
-            System.out.println("DEBUG remote: user=" + user + " cursor=" + cursor);
+        if (type.equals("page_content")) {
+            int pageIndex = msg.get("pageIndex").getAsInt();
+            String html   = msg.get("html").getAsString();
+            editorPane.applyPageContent(pageIndex, html);
+            return;
+        }
+        if (type.equals("page_add")) {
+            int pageIndex = msg.get("pageIndex").getAsInt();
+            editorPane.onPeerAddedPage(pageIndex);
+            return;
+        }
+        if (type.equals("pageMeta")) {
+            int count = msg.get("pageCount").getAsInt();
+            editorPane.initPages(count);
+            return;
+        }
 
-            applyingRemote = true; 
-             editorPane.setContent(html);
-             editorPane.showEditingIndicator(user);
-             if (cursor >= 0) editorPane.showRemoteCursor(user, cursor);
-             applyingRemote = false;
-        });
+        // ── Regular edit / restore / init ─────────────────────
+        String html   = msg.get("html").getAsString();
+        int cursor    = msg.has("cursor") ? msg.get("cursor").getAsInt() : -1;
+        String user   = msg.has("user")   ? msg.get("user").getAsString() : "Someone";
+
+        applyingRemote = true;
+        editorPane.setContent(html);
+        editorPane.showEditingIndicator(user);
+        if (cursor >= 0) editorPane.showRemoteCursor(user, cursor);
+        applyingRemote = false;
+    });
     }
 
     /**
@@ -93,5 +107,16 @@ public class EditorBridge {
         } catch (Exception e) {
             e.printStackTrace();
         }
+    }
+    public void requestPageSwitch(int pageIndex) {
+    if (client != null && client.isOpen()) {
+        client.requestPageSwitch(pageIndex);
+    }
+    }
+
+    public void notifyPageAdd(int pageIndex) {
+    if (client != null && client.isOpen()) {
+        client.sendPageAdd(pageIndex);
+    }
     }
 }

@@ -15,11 +15,11 @@ import java.util.List;
 public class VersionHistoryScreen {
 
     private final EditorBridge bridge;
-    private final EditorPane   editorPane;
+    
 
-    public VersionHistoryScreen(EditorBridge bridge, EditorPane editorPane) {
+    public VersionHistoryScreen(EditorBridge bridge){
         this.bridge     = bridge;
-        this.editorPane = editorPane;
+        
     }
 
     public void show() {

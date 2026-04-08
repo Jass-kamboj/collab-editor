@@ -236,4 +236,72 @@ public class DatabaseManager {
     }
     return history;
   }
+
+    // ── Pages ─────────────────────────────────────────────────────
+    public static void ensurePageExists(int docId, int pageIndex) {
+        String sql = "INSERT IGNORE INTO pages (doc_id, page_index, content) VALUES (?, ?, '')";
+        try (Connection conn = getConnection();
+            PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setInt(1, docId);
+            stmt.setInt(2, pageIndex);
+            stmt.executeUpdate();
+        } catch (SQLException e) {
+            System.err.println("ensurePageExists failed: " + e.getMessage());
+        }
+    }
+
+    public static String loadPage(int docId, int pageIndex) {
+        String sql = "SELECT content FROM pages WHERE doc_id = ? AND page_index = ?";
+        try (Connection conn = getConnection();
+            PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setInt(1, docId);
+            stmt.setInt(2, pageIndex);
+            ResultSet rs = stmt.executeQuery();
+            if (rs.next()) return rs.getString("content") != null ? rs.getString("content") : "";
+        } catch (SQLException e) {
+            System.err.println("loadPage failed: " + e.getMessage());
+        }
+        return "";
+    }
+
+    public static void savePage(int docId, int pageIndex, String html, String changedBy) {
+        String sql = "INSERT INTO pages (doc_id, page_index, content) VALUES (?, ?, ?) "
+                + "ON DUPLICATE KEY UPDATE content = ?";
+        try (Connection conn = getConnection();
+            PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setInt(1, docId);
+            stmt.setInt(2, pageIndex);
+            stmt.setString(3, html);
+            stmt.setString(4, html);
+            stmt.executeUpdate();
+        } catch (SQLException e) {
+            System.err.println("savePage failed: " + e.getMessage());
+        }
+    }
+
+    public static int getPageCount(int docId) {
+        String sql = "SELECT COUNT(*) FROM pages WHERE doc_id = ?";
+        try (Connection conn = getConnection();
+            PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setInt(1, docId);
+            ResultSet rs = stmt.executeQuery();
+            if (rs.next()) return rs.getInt(1);
+        } catch (SQLException e) {
+            System.err.println("getPageCount failed: " + e.getMessage());
+        }
+        return 0;
+    }
+
+    public static boolean deletePage(int docId, int pageIndex) {
+        String sql = "DELETE FROM pages WHERE doc_id = ? AND page_index = ?";
+        try (Connection conn = getConnection();
+            PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setInt(1, docId);
+            stmt.setInt(2, pageIndex);
+            return stmt.executeUpdate() > 0;
+        } catch (SQLException e) {
+            System.err.println("deletePage failed: " + e.getMessage());
+            return false;
+        }
+    }
 }
