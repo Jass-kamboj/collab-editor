@@ -67,12 +67,14 @@ public class EditorServer extends WebSocketServer {
                 docContents.put(docId, DatabaseManager.loadContent(docId));
             }
 
-            // Send current content to the joining client
-            String content = docContents.get(docId);
+            // Send page 0 content to the joining client
+            String key = docId + ":0";
+            String content = pageContents.getOrDefault(key, DatabaseManager.loadPage(docId, 0));
+            pageContents.put(key, content);
             if (content != null && !content.isEmpty()) {
                 JsonObject init = new JsonObject();
-                init.addProperty("type", "init");
-                init.addProperty("user", "server");
+                init.addProperty("type", "page_content");
+                init.addProperty("pageIndex", 0);
                 init.addProperty("html", content);
                 sender.send(init.toString());
             }
@@ -176,6 +178,22 @@ public class EditorServer extends WebSocketServer {
             }
         }
         return;
+    }
+        if (type.equals("page_delete")) {
+            Integer docId = connRoom.get(sender);
+            if (docId == null) return;
+            int pageIndex = msg.get("pageIndex").getAsInt();
+            DatabaseManager.deletePage(docId, pageIndex);
+
+            Set<WebSocket> room = rooms.get(docId);
+            if (room != null) {
+                synchronized (room) {
+                    for (WebSocket client : room) {
+                        if (client != sender && client.isOpen()) client.send(message);
+                    }
+                }
+            }
+             return;
     }
         // ── Regular edit ─────────────────────────────────────────
         String html = msg.get("html").getAsString();

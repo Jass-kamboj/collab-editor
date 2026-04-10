@@ -25,7 +25,7 @@ public class EditorBridge {
     public void onContentChanged(String html, int cursorOffset) {
     Platform.runLater(() -> {
         if (!applyingRemote && client != null && client.isOpen()) {
-            client.sendPageEdit(editorPane.getCurrentPage(), html, username);
+            client.sendPageEdit(editorPane.getCurrentPage(), html, username, cursorOffset);
         }
     });
     }
@@ -55,12 +55,24 @@ public class EditorBridge {
             editorPane.initPages(count);
             return;
         }
+        if (type.equals("page_delete")) {
+            int pageIndex = msg.get("pageIndex").getAsInt();
+            editorPane.onPeerDeletedPage(pageIndex);
+            return;
+        }
 
-        // ── Regular edit / restore / init ─────────────────────
+        // ── Regular edit / restore / init / page_edit ─────────
+        if (!msg.has("html")) return;
         String html   = msg.get("html").getAsString();
         int cursor    = msg.has("cursor") ? msg.get("cursor").getAsInt() : -1;
         String user   = msg.has("user")   ? msg.get("user").getAsString() : "Someone";
 
+        // For page_edit, cache it always but only render if it's the current page
+        if (type.equals("page_edit")) {
+            int pageIndex = msg.has("pageIndex") ? msg.get("pageIndex").getAsInt() : 0;
+            editorPane.applyPageContent(pageIndex, html);  // always cache
+            if (pageIndex != editorPane.getCurrentPage()) return;  // only render if active
+        }
         applyingRemote = true;
         editorPane.setContent(html);
         editorPane.showEditingIndicator(user);
@@ -119,4 +131,12 @@ public class EditorBridge {
         client.sendPageAdd(pageIndex);
     }
     }
+    public void notifyPageDelete(int pageIndex) {
+    if (client != null && client.isOpen()) {
+        com.google.gson.JsonObject msg = new com.google.gson.JsonObject();
+        msg.addProperty("type", "page_delete");
+        msg.addProperty("pageIndex", pageIndex);
+        client.send(msg.toString());
+    }
+  }
 }

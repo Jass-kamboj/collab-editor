@@ -41,12 +41,13 @@ public class EditorClient extends WebSocketClient {
     public void onError(Exception ex) {
         ex.printStackTrace();
     }
-        public void sendPageEdit(int pageIndex, String html, String user) {
+    public void sendPageEdit(int pageIndex, String html, String user, int cursorOffset) {
         JsonObject msg = new JsonObject();
         msg.addProperty("type", "page_edit");
         msg.addProperty("pageIndex", pageIndex);
         msg.addProperty("html", html);
         msg.addProperty("user", user);
+        msg.addProperty("cursor", cursorOffset);
         send(msg.toString());
     }
 

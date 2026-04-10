@@ -130,7 +130,10 @@ public class EditorPane {
                         clearTimeout(debounce);
                         debounce = setTimeout(sendUpdate, 300);
                     });
-                    editor.addEventListener('keyup',   sendUpdate);
+                    editor.addEventListener('keyup', function() {
+                        clearTimeout(debounce);
+                        debounce = setTimeout(sendUpdate, 300);
+                    });
                     editor.addEventListener('mouseup', sendUpdate);
                 """);
 
@@ -282,10 +285,27 @@ public class EditorPane {
                 "-fx-border-radius: 2;" +
                 "-fx-cursor: hand;"
             );
-            thumb.setOnMouseClicked(e -> switchToPage(idx));
+            thumb.setOnMouseClicked(e -> {
+                if (e.getClickCount() == 1) switchToPage(idx);
+            });
 
             VBox cell = new VBox(4, thumb, numLabel);
             cell.setAlignment(Pos.CENTER);
+
+               // ── Delete button (only show if more than 1 page) ──
+            if (pageContents.size() > 1) {
+                Button delBtn = new Button("✕");
+                delBtn.setStyle(
+                    "-fx-font-size: 9px; -fx-padding: 1 4 1 4;" +
+                    "-fx-background-color: #ffebee; -fx-text-fill: #c62828;" +
+                    "-fx-border-color: #ef9a9a; -fx-border-radius: 2;" +
+                    "-fx-background-radius: 2; -fx-cursor: hand;"
+                );
+                delBtn.setMaxWidth(Double.MAX_VALUE);
+                delBtn.setOnAction(e -> deletePage(idx));
+                cell.getChildren().add(delBtn);
+            }
+
             thumbnailStrip.getChildren().add(cell);
         }
 
@@ -410,5 +430,38 @@ public class EditorPane {
             </body>
             </html>
             """;
+    }
+
+    //___________delete page logic (called by delete button in thumbnail)____________________
+    private void deletePage(int index) {
+    if (pageContents.size() <= 1) return; // can't delete last page
+
+    pageContents.remove(index);
+
+    // If deleted current or a page before current, adjust
+    if (currentPage >= pageContents.size()) {
+        currentPage = pageContents.size() - 1;
+    }
+
+    refreshThumbnailStrip();
+    setContent(pageContents.get(currentPage));
+
+    // Notify server
+    if (bridge != null) {
+        javafx.application.Platform.runLater(() -> {
+            com.google.gson.JsonObject msg = new com.google.gson.JsonObject();
+            msg.addProperty("type", "page_delete");
+            msg.addProperty("pageIndex", index);
+            if (bridge != null) bridge.notifyPageDelete(index);
+        });
+    }
+    }
+    public void onPeerDeletedPage(int index) {
+    if (index < pageContents.size()) {
+        pageContents.remove(index);
+        if (currentPage >= pageContents.size()) currentPage = pageContents.size() - 1;
+        refreshThumbnailStrip();
+        setContent(pageContents.get(currentPage));
+    }
     }
 }
