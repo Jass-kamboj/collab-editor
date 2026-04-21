@@ -402,17 +402,22 @@ public class EditorPane {
                 var cursor = document.createElement('span');
                 cursor.id = 'cursor-%s';
                 cursor.className = 'remote-cursor';
+                cursor.contentEditable = 'false';
                 cursor.style.cssText = [
                     'display:inline-block','width:2px','background:%s',
                     'position:relative','animation:blink 1s step-end infinite',
-                    'margin-left:-1px','vertical-align:text-bottom','height:1.2em'
+                    'margin-left:-1px','vertical-align:text-bottom','height:1.2em',
+                    'pointer-events:none','user-select:none','-webkit-user-select:none'
                 ].join(';');
+                cursor.setAttribute('contenteditable', 'false');
                 var tag = document.createElement('span');
                 tag.textContent = '%s';
+                tag.contentEditable = 'false';
                 tag.style.cssText = [
                     'position:absolute','top:-1.4em','left:0','background:%s',
                     'color:#fff','font-size:10px','padding:1px 4px',
-                    'border-radius:3px','white-space:nowrap','pointer-events:none'
+                    'border-radius:3px','white-space:nowrap','pointer-events:none',
+                    'user-select:none','-webkit-user-select:none'
                 ].join(';');
                 cursor.appendChild(tag);
                 range.insertNode(cursor);

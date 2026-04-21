@@ -13,10 +13,9 @@ import java.io.File;
 
 public class ToolbarController {
 
-    private final ToolBar toolbar;
+    private final HBox toolbar;
 
-    // ── Brand constants ──────────────────────────────────────────
-    private static final String PURPLE       = "#534AB7";
+    private static final String PURPLE      = "#534AB7";
     private static final String PURPLE_HOVER = "#3C3489";
     private static final String PURPLE_TINT  = "#EEEDFE";
     private static final String BORDER       = "#d3d1c7";
@@ -31,33 +30,43 @@ public class ToolbarController {
             "-fx-font-size: 13px;" +
             "-fx-font-weight: bold;" +
             "-fx-text-fill: " + PURPLE + ";" +
-            "-fx-padding: 0 12 0 4;"
+            "-fx-padding: 0 10 0 4;"
         );
 
-        // ── Doc title label ──────────────────────────────────────
-        String docTitle = "Untitled";
-        Label titleLabel = new Label(docTitle);
+        // ── Doc title ────────────────────────────────────────────
+        Label titleLabel = new Label("Untitled");
         titleLabel.setStyle(
             "-fx-font-size: 13px;" +
             "-fx-text-fill: " + TEXT + ";" +
             "-fx-font-weight: 500;" +
-            "-fx-padding: 0 8 0 0;" +
-            "-fx-max-width: 180px;"
+            "-fx-padding: 0 6 0 0;" +
+            "-fx-max-width: 160px;"
         );
-        titleLabel.setEllipsisString("…");
 
-        // ── Separator helper ─────────────────────────────────────
-        // We'll use styled Region dividers instead of default Separator
-        // (helper defined below as a method)
+        // ── Undo / Redo ──────────────────────────────────────────
+        Button undoBtn = makeSecondaryBtn("↩ Undo");
+        Button redoBtn = makeSecondaryBtn("↪ Redo");
 
-        // ── Formatting buttons ───────────────────────────────────
-        Button boldBtn      = makeFormatBtn("B", "bold",      "font-weight:bold");
-        Button italicBtn    = makeFormatBtn("I", "italic",    "font-style:italic");
-        Button underlineBtn = makeFormatBtn("U", "underline", "text-decoration:underline");
+        undoBtn.setOnAction(e -> { editor.execCommand("undo"); bridge.pushChange(); });
+        redoBtn.setOnAction(e -> { editor.execCommand("redo"); bridge.pushChange(); });
 
-        boldBtn.setOnAction(e -> { editor.execCommand("bold");      bridge.pushChange(); });
-        italicBtn.setOnAction(e -> { editor.execCommand("italic");  bridge.pushChange(); });
+        // Keyboard shortcuts — attach to toolbar so they work app-wide
+        // (MainApp should also call editor.getScene().setOnKeyPressed for global scope)
+        undoBtn.setTooltip(new Tooltip("Undo  Ctrl+Z"));
+        redoBtn.setTooltip(new Tooltip("Redo  Ctrl+Y"));
+
+        // ── Formatting ───────────────────────────────────────────
+        Button boldBtn      = makeFormatBtn("B", "bold",      "-fx-font-weight:bold");
+        Button italicBtn    = makeFormatBtn("I", "italic",    "-fx-font-style:italic");
+        Button underlineBtn = makeFormatBtn("U", "underline", "-fx-underline:true");
+
+        boldBtn.setOnAction(e      -> { editor.execCommand("bold");      bridge.pushChange(); });
+        italicBtn.setOnAction(e    -> { editor.execCommand("italic");    bridge.pushChange(); });
         underlineBtn.setOnAction(e -> { editor.execCommand("underline"); bridge.pushChange(); });
+
+        boldBtn.setTooltip(new Tooltip("Bold  Ctrl+B"));
+        italicBtn.setTooltip(new Tooltip("Italic  Ctrl+I"));
+        underlineBtn.setTooltip(new Tooltip("Underline  Ctrl+U"));
 
         // ── Font size ────────────────────────────────────────────
         ComboBox<String> fontSizeBox = new ComboBox<>();
@@ -69,9 +78,7 @@ public class ToolbarController {
             "-fx-background-color: white;" +
             "-fx-border-color: " + BORDER + ";" +
             "-fx-border-radius: 5px;" +
-            "-fx-background-radius: 5px;" +
-            "-fx-text-fill: " + TEXT + ";" +
-            "-fx-padding: 2 4 2 4;"
+            "-fx-background-radius: 5px;"
         );
         fontSizeBox.setOnAction(e -> {
             String size = fontSizeBox.getValue();
@@ -90,13 +97,17 @@ public class ToolbarController {
         tableBtn.setOnAction(e -> {
             editor.getEngine().executeScript(
                 "document.execCommand('insertHTML', false, '" +
-                "<table><tr><td>Cell 1</td><td>Cell 2</td></tr>" +
-                "<tr><td>Cell 3</td><td>Cell 4</td></tr></table><br>');"
+                "<table style=\"border-collapse:collapse;width:100%\">" +
+                "<tr><td style=\"border:1px solid #ccc;padding:6px\">Cell 1</td>" +
+                "<td style=\"border:1px solid #ccc;padding:6px\">Cell 2</td></tr>" +
+                "<tr><td style=\"border:1px solid #ccc;padding:6px\">Cell 3</td>" +
+                "<td style=\"border:1px solid #ccc;padding:6px\">Cell 4</td></tr>" +
+                "</table><br>');"
             );
             bridge.pushChange();
         });
 
-        // ── Image ────────────────────────────────────────────────
+        // ── Image (with resize dialog) ───────────────────────────
         Button imageBtn = makeSecondaryBtn("🖼 Image");
         imageBtn.setOnAction(e -> {
             FileChooser fc = new FileChooser();
@@ -106,8 +117,28 @@ public class ToolbarController {
             );
             File file = fc.showOpenDialog(stage);
             if (file != null) {
-                editor.execCommand("insertImage", file.toURI().toString());
-                bridge.pushChange();
+                String uri = file.toURI().toString();
+
+                // Ask user for width
+                TextInputDialog sizeDialog = new TextInputDialog("300");
+                sizeDialog.setTitle("Image Size");
+                sizeDialog.setHeaderText("Set image width (px)");
+                sizeDialog.setContentText("Width:");
+                styleDialog(sizeDialog);
+
+                sizeDialog.showAndWait().ifPresent(widthStr -> {
+                    int width = 300;
+                    try { width = Math.max(50, Math.min(1200, Integer.parseInt(widthStr.trim()))); }
+                    catch (NumberFormatException ignored) {}
+
+                    String html = "<img src=\\'" + uri + "\\' " +
+                        "style=\\'width:" + width + "px;height:auto;" +
+                        "display:block;margin:8px 0;cursor:pointer;\\' />";
+                    editor.getEngine().executeScript(
+                        "document.execCommand('insertHTML', false, '" + html + "');"
+                    );
+                    bridge.pushChange();
+                });
             }
         });
 
@@ -154,6 +185,8 @@ public class ToolbarController {
         editor.setZoomLabel(zoomPct);
         zoomOut.setOnAction(e -> editor.adjustZoom(-0.1));
         zoomIn.setOnAction(e ->  editor.adjustZoom( 0.1));
+        zoomOut.setTooltip(new Tooltip("Zoom Out  Ctrl+Scroll"));
+        zoomIn.setTooltip(new Tooltip("Zoom In  Ctrl+Scroll"));
 
         HBox zoomGroup = new HBox(0, zoomOut, zoomPct, zoomIn);
         zoomGroup.setAlignment(Pos.CENTER);
@@ -165,26 +198,28 @@ public class ToolbarController {
         );
         zoomGroup.setPadding(new Insets(0, 2, 0, 2));
 
-        // ── History button ───────────────────────────────────────
+        // ── History ──────────────────────────────────────────────
         Button historyBtn = makeSecondaryBtn("🕐 History");
         historyBtn.setOnAction(e -> new VersionHistoryScreen(bridge).show());
 
         // ── Editing indicator pill ───────────────────────────────
         Label editingPill = editor.getEditingLabel();
 
-        // ── Spacer (pushes right-side items to the right) ────────
-        Region spacer = new Region();
-        HBox.setHgrow(spacer, Priority.ALWAYS);
-
-        // ── Right-side: Save + History ───────────────────────────
+        // ── Primary Save ─────────────────────────────────────────
         Button saveBtn = makePrimaryBtn("💾 Save");
         saveBtn.setOnAction(e -> bridge.pushChange());
 
-        // ── Assemble into a single HBox inside the toolbar ───────
-        HBox left = new HBox(6,
+        // ── Spacer ───────────────────────────────────────────────
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        // ── Left group ───────────────────────────────────────────
+        HBox left = new HBox(5,
             brand,
             makeDivider(),
             titleLabel,
+            makeDivider(),
+            undoBtn, redoBtn,
             makeDivider(),
             boldBtn, italicBtn, underlineBtn,
             makeDivider(),
@@ -195,37 +230,60 @@ public class ToolbarController {
             saveDocx, savePdf
         );
         left.setAlignment(Pos.CENTER_LEFT);
+        left.setPadding(new Insets(0));
 
-        HBox right = new HBox(6,
-            zoomGroup,
-            makeDivider(),
+        // ── Right group ──────────────────────────────────────────
+        HBox right = new HBox(5,
             editingPill,
+            makeDivider(),
+            zoomGroup,          // zoom sits RIGHT next to history — no gap
             makeDivider(),
             historyBtn,
             saveBtn
         );
         right.setAlignment(Pos.CENTER_RIGHT);
 
+        // ── Full container ───────────────────────────────────────
         HBox container = new HBox(left, spacer, right);
         container.setAlignment(Pos.CENTER);
         container.setPadding(new Insets(0, 8, 0, 8));
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
-        toolbar = new ToolBar(container);
-        toolbar.setPadding(new Insets(5, 0, 5, 0));
+       // ── Toolbar = plain HBox with scroll via ScrollPane ──────
+        ScrollPane scroll = new ScrollPane(container);
+        scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        scroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        scroll.setFitToHeight(true);
+        scroll.setPannable(true);
+        scroll.setStyle(
+            "-fx-background-color: transparent;" +
+            "-fx-background: transparent;" +
+            "-fx-border-color: transparent;" +
+            "-fx-padding: 0;"
+        );
+
+        toolbar = new HBox(scroll);
+        toolbar.setAlignment(Pos.CENTER_LEFT);
+        toolbar.setPadding(new Insets(5, 8, 5, 8));
+        toolbar.setMinHeight(46);
+        toolbar.setMaxHeight(46);
         toolbar.setStyle(
             "-fx-background-color: white;" +
             "-fx-border-color: transparent transparent " + BORDER + " transparent;" +
-            "-fx-border-width: 0 0 1 0;" +
-            "-fx-padding: 5 8 5 8;"
+            "-fx-border-width: 0 0 1 0;"
         );
+        HBox.setHgrow(scroll, Priority.ALWAYS);
+        scroll.prefWidthProperty().bind(toolbar.widthProperty().subtract(16)
+    );
+
+        // Make scroll fill full toolbar width
+        scroll.prefWidthProperty().bind(toolbar.widthProperty().subtract(16));
     }
 
-    public ToolBar getToolbar() { return toolbar; }
+    public HBox getToolbar() { return toolbar; }
 
     // ── Button factories ─────────────────────────────────────────
 
-    /** Bold / Italic / Underline toggle-style buttons */
     private Button makeFormatBtn(String label, String cmd, String extraStyle) {
         Button btn = new Button(label);
         String base =
@@ -243,11 +301,10 @@ public class ToolbarController {
             "-fx-text-fill: " + PURPLE + ";" +
             "-fx-border-color: " + PURPLE + ";" +
             "-fx-background-color: " + PURPLE_TINT + ";"));
-        btn.setOnMouseExited(e  -> btn.setStyle(base + "-fx-text-fill: " + TEXT + ";"));
+        btn.setOnMouseExited(e -> btn.setStyle(base + "-fx-text-fill: " + TEXT + ";"));
         return btn;
     }
 
-    /** Ghost/secondary buttons (Table, Image, Open, Save .docx etc.) */
     private Button makeSecondaryBtn(String label) {
         Button btn = new Button(label);
         String base =
@@ -260,15 +317,20 @@ public class ToolbarController {
             "-fx-cursor: hand;" +
             "-fx-padding: 4 10 4 10;";
         btn.setStyle(base);
-        btn.setOnMouseEntered(e -> btn.setStyle(base
-            .replace("-fx-text-fill: " + TEXT, "-fx-text-fill: " + PURPLE)
-            .replace("-fx-border-color: " + BORDER, "-fx-border-color: " + PURPLE)
-            .replace("-fx-background-color: white", "-fx-background-color: " + PURPLE_TINT)));
-        btn.setOnMouseExited(e  -> btn.setStyle(base));
+        btn.setOnMouseEntered(e -> btn.setStyle(
+            "-fx-font-size: 12px;" +
+            "-fx-background-color: " + PURPLE_TINT + ";" +
+            "-fx-border-color: " + PURPLE + ";" +
+            "-fx-border-radius: 5px;" +
+            "-fx-background-radius: 5px;" +
+            "-fx-text-fill: " + PURPLE + ";" +
+            "-fx-cursor: hand;" +
+            "-fx-padding: 4 10 4 10;"
+        ));
+        btn.setOnMouseExited(e -> btn.setStyle(base));
         return btn;
     }
 
-    /** Filled primary button (Save) */
     private Button makePrimaryBtn(String label) {
         Button btn = new Button(label);
         String base =
@@ -284,11 +346,10 @@ public class ToolbarController {
         btn.setStyle(base);
         btn.setOnMouseEntered(e -> btn.setStyle(base
             .replace(PURPLE, PURPLE_HOVER)));
-        btn.setOnMouseExited(e  -> btn.setStyle(base));
+        btn.setOnMouseExited(e -> btn.setStyle(base));
         return btn;
     }
 
-    /** Small icon-only button (zoom − / +) */
     private Button makeIconBtn(String symbol) {
         Button btn = new Button(symbol);
         String base =
@@ -302,22 +363,34 @@ public class ToolbarController {
         btn.setStyle(base);
         btn.setOnMouseEntered(e -> btn.setStyle(base
             .replace("-fx-text-fill: " + MUTED, "-fx-text-fill: " + PURPLE)));
-        btn.setOnMouseExited(e  -> btn.setStyle(base));
+        btn.setOnMouseExited(e -> btn.setStyle(base));
         return btn;
     }
 
-    /** Thin vertical divider to replace Separator */
     private Region makeDivider() {
         Region div = new Region();
         div.setMinWidth(1);
         div.setMaxWidth(1);
         div.setPrefHeight(20);
         div.setStyle("-fx-background-color: " + BORDER + ";");
-        HBox.setMargin(div, new Insets(0, 2, 0, 2));
+        HBox.setMargin(div, new Insets(0, 3, 0, 3));
         return div;
     }
 
-    // ── Helper ───────────────────────────────────────────────────
+    /** Style a TextInputDialog to match app theme */
+    private void styleDialog(TextInputDialog dialog) {
+        dialog.getDialogPane().setStyle(
+            "-fx-background-color: white;" +
+            "-fx-font-size: 13px;"
+        );
+        dialog.getDialogPane().lookupButton(ButtonType.OK).setStyle(
+            "-fx-background-color: " + PURPLE + ";" +
+            "-fx-text-fill: white;" +
+            "-fx-background-radius: 6px;" +
+            "-fx-font-weight: bold;"
+        );
+    }
+
     private File showSaveDialog(Stage stage, String title, String desc, String ext) {
         FileChooser fc = new FileChooser();
         fc.setTitle(title);
