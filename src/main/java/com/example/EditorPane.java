@@ -150,6 +150,36 @@ public class EditorPane {
                         debounce = setTimeout(sendUpdate, 300);
                     });
                     editor.addEventListener('mouseup', sendUpdate);
+
+                    // ── Prevent typing inside remote cursor tags ──
+                    editor.addEventListener('keydown', function(e) {
+                        var sel = window.getSelection();
+                        if (!sel || sel.rangeCount === 0) return;
+                        var node = sel.anchorNode;
+                        while (node && node !== editor) {
+                            if (node.classList && node.classList.contains('remote-cursor')) {
+                                // Move caret after the cursor span
+                                var range = document.createRange();
+                                range.setStartAfter(node);
+                                range.collapse(true);
+                                sel.removeAllRanges();
+                                sel.addRange(range);
+                                break;
+                            }
+                            node = node.parentNode;
+                        }
+                    }, true);
+
+                    editor.addEventListener('input', function(e) {
+                        // Remove any text that got inserted inside a remote-cursor span
+                        document.querySelectorAll('.remote-cursor').forEach(function(el) {
+                            Array.from(el.childNodes).forEach(function(child) {
+                                if (child.nodeType === Node.TEXT_NODE) {
+                                    el.parentNode.insertBefore(child, el);
+                                }
+                            });
+                        });
+                    }, true);
                 """);
 
                 engine.titleProperty().addListener((o, oldTitle, title) -> {
