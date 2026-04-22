@@ -2,7 +2,7 @@
 
 A real-time collaborative document editor built with JavaFX and WebSocket. Multiple users can open the editor simultaneously and see each other's changes live. Documents are persisted in MySQL and exported to `.docx` and `.pdf`.
 
-**Team:** Jaskarandeep Singh · Aryan Dhiman· Amrinder Singh Sandhu · Krishna
+**Team:** Amrinder Singh Sandhu . Jaskarandeep Singh · Aryan Dhiman · Krishna
 
 ---
 
