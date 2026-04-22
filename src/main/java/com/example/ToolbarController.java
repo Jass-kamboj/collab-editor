@@ -68,6 +68,30 @@ public class ToolbarController {
         italicBtn.setTooltip(new Tooltip("Italic  Ctrl+I"));
         underlineBtn.setTooltip(new Tooltip("Underline  Ctrl+U"));
 
+        // ── Font family ──────────────────────────────────────────
+        ComboBox<String> fontFamilyBox = new ComboBox<>();
+        fontFamilyBox.getItems().addAll(
+            "Georgia", "Times New Roman", "Arial", "Helvetica",
+            "Verdana", "Trebuchet MS", "Courier New", "Monaco",
+            "Palatino", "Garamond", "Comic Sans MS", "Impact"
+        );
+        fontFamilyBox.setValue("Georgia");
+        fontFamilyBox.setPrefWidth(130);
+        fontFamilyBox.setStyle(
+            "-fx-font-size: 12px;" +
+            "-fx-background-color: white;" +
+            "-fx-border-color: " + BORDER + ";" +
+            "-fx-border-radius: 5px;" +
+            "-fx-background-radius: 5px;"
+        );
+        fontFamilyBox.setOnAction(e -> {
+            String family = fontFamilyBox.getValue();
+            editor.getEngine().executeScript(
+                "document.execCommand('fontName', false, '" + family + "');"
+            );
+            bridge.pushChange();
+        });
+
         // ── Font size ────────────────────────────────────────────
         ComboBox<String> fontSizeBox = new ComboBox<>();
         fontSizeBox.getItems().addAll("10","12","14","16","18","24","32","48");
@@ -220,6 +244,8 @@ public class ToolbarController {
             titleLabel,
             makeDivider(),
             undoBtn, redoBtn,
+            makeDivider(),
+            fontFamilyBox,
             makeDivider(),
             boldBtn, italicBtn, underlineBtn,
             makeDivider(),
