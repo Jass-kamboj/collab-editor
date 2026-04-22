@@ -116,70 +116,16 @@ public class EditorPane {
     // ════════════════════════════════════════════════════════════
     //  Init
     // ════════════════════════════════════════════════════════════
-    public void init(EditorBridge bridge) {
+public void init(EditorBridge bridge) {
         this.bridge = bridge;
 
         engine.getLoadWorker().stateProperty().addListener((obs, old, state) -> {
             if (state == Worker.State.SUCCEEDED) {
+
                 engine.executeScript("""
                     var style = document.createElement('style');
                     style.textContent = '@keyframes blink { 50% { opacity:0; } }';
                     document.head.appendChild(style);
-
-                    var editor = document.getElementById('editor');
-                    var debounce;
-
-                    function sendUpdate() {
-                        var sel = window.getSelection();
-                        var offset = 0;
-                        if (sel && sel.rangeCount > 0) {
-                            var range = document.createRange();
-                            range.setStart(editor, 0);
-                            range.setEnd(sel.anchorNode, sel.anchorOffset);
-                            offset = range.toString().length;
-                        }
-                        document.title = '##CONTENT##' + offset + '|' + editor.innerHTML;
-                    }
-
-                    editor.addEventListener('input', function() {
-                        clearTimeout(debounce);
-                        debounce = setTimeout(sendUpdate, 300);
-                    });
-                    editor.addEventListener('keyup', function() {
-                        clearTimeout(debounce);
-                        debounce = setTimeout(sendUpdate, 300);
-                    });
-                    editor.addEventListener('mouseup', sendUpdate);
-
-                    // ── Prevent typing inside remote cursor tags ──
-                    editor.addEventListener('keydown', function(e) {
-                        var sel = window.getSelection();
-                        if (!sel || sel.rangeCount === 0) return;
-                        var node = sel.anchorNode;
-                        while (node && node !== editor) {
-                            if (node.classList && node.classList.contains('remote-cursor')) {
-                                // Move caret after the cursor span
-                                var range = document.createRange();
-                                range.setStartAfter(node);
-                                range.collapse(true);
-                                sel.removeAllRanges();
-                                sel.addRange(range);
-                                break;
-                            }
-                            node = node.parentNode;
-                        }
-                    }, true);
-
-                    editor.addEventListener('input', function(e) {
-                        // Remove any text that got inserted inside a remote-cursor span
-                        document.querySelectorAll('.remote-cursor').forEach(function(el) {
-                            Array.from(el.childNodes).forEach(function(child) {
-                                if (child.nodeType === Node.TEXT_NODE) {
-                                    el.parentNode.insertBefore(child, el);
-                                }
-                            });
-                        });
-                    }, true);
                 """);
 
                 engine.titleProperty().addListener((o, oldTitle, title) -> {
@@ -461,15 +407,29 @@ public class EditorPane {
     }
 
     public String getContent() {
-        return (String) engine.executeScript(
-            "document.getElementById('editor').innerHTML;");
+        return (String) engine.executeScript("getAllContent();");
     }
 
     public void setContent(String html) {
-        String safe = html.replace("\\", "\\\\").replace("`", "\\`");
-        engine.executeScript(
-            "document.getElementById('editor').innerHTML = `" + safe + "`;");
-    }
+            String safe = html.replace("\\", "\\\\").replace("`", "\\`");
+            engine.executeScript("""
+                (function() {
+                    var parts = `%s`.split('<hr class="page-break"/>');
+                    // Reset to 1 page
+                    var allWraps = document.querySelectorAll('.page-wrap');
+                    for (var i = 1; i < allWraps.length; i++) allWraps[i].remove();
+                    pageCount = 1;
+
+                    var firstEd = document.getElementById('editor');
+                    firstEd.innerHTML = parts[0] || '';
+
+                    for (var p = 1; p < parts.length; p++) {
+                        var newEd = addPage();
+                        newEd.innerHTML = parts[p];
+                    }
+                })();
+            """.formatted(safe));
+        }
 
     public void execCommand(String cmd) {
         engine.executeScript("document.execCommand('" + cmd + "', false, null);");
@@ -489,19 +449,23 @@ public class EditorPane {
             <head>
             <meta charset="UTF-8">
             <style>
-              * { box-sizing: border-box; }
-              html, body { margin:0; padding:0; background: #f0efe9; }
-              #page-wrap {
+            * { box-sizing: border-box; }
+            html, body { margin:0; padding:0; background: #f0efe9; overflow-y: auto; min-height: 100%; }
+
+            .page-wrap {
                 width: 680px;
-                min-height: 880px;
+                height: 880px;
+                overflow: hidden;
                 margin: 28px auto;
                 background: white;
                 border-radius: 4px;
                 border: 0.5px solid #d3d1c7;
                 box-shadow: 0 2px 10px rgba(0,0,0,0.07);
-              }
-              #editor {
-                min-height: 820px;
+                position: relative;
+            }
+
+            .page-editor {
+                height: 776px;
                 padding: 52px 60px;
                 outline: none;
                 font-family: 'Georgia', serif;
@@ -509,17 +473,242 @@ public class EditorPane {
                 line-height: 1.75;
                 color: #1a1a1a;
                 word-wrap: break-word;
-              }
-              table { border-collapse: collapse; }
-              td, th { border: 1px solid #d3d1c7; padding: 4px 8px; min-width: 60px; }
+                overflow: hidden;
+            }
+
+            .page-number {
+                position: absolute;
+                bottom: 10px;
+                width: 100%;
+                text-align: center;
+                font-size: 10px;
+                color: #b4b2a9;
+                pointer-events: none;
+                user-select: none;
+            }
+
+            table { border-collapse: collapse; }
+            td, th { border: 1px solid #d3d1c7; padding: 4px 8px; min-width: 60px; }
             </style>
             </head>
             <body>
-            <div id="page-wrap">
-              <div id="editor" contenteditable="true" spellcheck="true">
-                Start typing here…
-              </div>
+            <div class="page-wrap" id="page-1">
+            <div class="page-editor" id="editor" contenteditable="true" spellcheck="true"></div>
+            <div class="page-number">1</div>
             </div>
+
+            <script>
+            var PAGE_HEIGHT = 776;
+            var pageCount = 1;
+            var isProcessing = false;
+
+            function getPageEditor(n) {
+            return n === 1
+                ? document.getElementById('editor')
+                : document.getElementById('editor-' + n);
+            }
+
+            function addPage() {
+            pageCount++;
+            var wrap = document.createElement('div');
+            wrap.className = 'page-wrap';
+            wrap.id = 'page-' + pageCount;
+
+            var ed = document.createElement('div');
+            ed.className = 'page-editor';
+            ed.id = 'editor-' + pageCount;
+            ed.contentEditable = 'true';
+            ed.spellcheck = true;
+
+            var num = document.createElement('div');
+            num.className = 'page-number';
+            num.textContent = pageCount;
+
+            wrap.appendChild(ed);
+            wrap.appendChild(num);
+            document.body.appendChild(wrap);
+            attachListeners(ed);
+            return ed;
+            }
+
+            function removePage(n) {
+            if (n <= 1) return;
+            var wrap = document.getElementById('page-' + n);
+            if (wrap) wrap.remove();
+            pageCount = Math.max(1, pageCount - 1);
+            document.querySelectorAll('.page-number').forEach(function(el, i) {
+                el.textContent = i + 1;
+            });
+            }
+
+            function moveLastChildToNext(ed, nextEd) {
+            var kids = Array.from(ed.childNodes).filter(function(n) {
+                return !(n.nodeType === Node.TEXT_NODE && n.textContent.trim() === '');
+            });
+            if (kids.length === 0) return false;
+            var last = kids[kids.length - 1];
+            nextEd.insertBefore(last.cloneNode(true), nextEd.firstChild);
+            last.remove();
+            return true;
+            }
+
+            function moveFirstChildToPrev(ed, prevEd) {
+            var kids = Array.from(ed.childNodes).filter(function(n) {
+                return !(n.nodeType === Node.TEXT_NODE && n.textContent.trim() === '');
+            });
+            if (kids.length === 0) return false;
+            var first = kids[0];
+            prevEd.appendChild(first.cloneNode(true));
+            first.remove();
+            return true;
+            }
+
+            function getContentBottom(ed) {
+          // Use scrollHeight vs the fixed height — most reliable in WebView
+          // scrollHeight includes all content even if overflow:hidden
+          var kids = Array.from(ed.childNodes).filter(function(n) {
+            return n.nodeType === Node.ELEMENT_NODE ||
+              (n.nodeType === Node.TEXT_NODE && n.textContent.trim() !== '');
+          });
+          if (kids.length === 0) return 0;
+
+          // Temporarily make overflow visible to get true scrollHeight
+          var oldOverflow = ed.style.overflow;
+          ed.style.overflow = 'visible';
+          var h = ed.scrollHeight;
+          ed.style.overflow = oldOverflow || '';
+          return h;
+        }
+
+        function checkPages() {
+          if (isProcessing) return;
+          isProcessing = true;
+          try {
+            // Forward pass — push overflow to next page
+            for (var i = 1; i <= pageCount; i++) {
+              var ed = getPageEditor(i);
+              if (!ed) continue;
+              var tries = 0;
+              while (getContentBottom(ed) > PAGE_HEIGHT + 104 && tries < 30) {
+                var nextNum = i + 1;
+                var nextEd = getPageEditor(nextNum);
+                if (!nextEd) nextEd = addPage();
+                if (!moveLastChildToNext(ed, nextEd)) break;
+                tries++;
+              }
+            }
+
+            // Backward pass — pull content back if previous page has room
+            for (var j = pageCount; j >= 2; j--) {
+              var cur = getPageEditor(j);
+              var prev = getPageEditor(j - 1);
+              if (!cur || !prev) continue;
+              var kids = Array.from(cur.childNodes).filter(function(n) {
+                return !(n.nodeType === Node.TEXT_NODE && n.textContent.trim() === '');
+              });
+              if (kids.length === 0) {
+                removePage(j);
+                continue;
+              }
+              // Test if first child of cur fits in prev
+              var testNode = kids[0].cloneNode(true);
+              prev.appendChild(testNode);
+              if (getContentBottom(prev) <= PAGE_HEIGHT + 104) {
+                prev.removeChild(testNode);
+                moveFirstChildToPrev(cur, prev);
+                j++;
+              } else {
+                prev.removeChild(testNode);
+              }
+            }
+
+            // Remove trailing empty pages
+            for (var k = pageCount; k >= 2; k--) {
+              var ed2 = getPageEditor(k);
+              if (ed2 && ed2.innerHTML.trim() === '') {
+                removePage(k);
+              } else {
+                break;
+              }
+            }
+          } finally {
+            isProcessing = false;
+          }
+        }
+
+            function getAllContent() {
+            var parts = [];
+            for (var i = 1; i <= pageCount; i++) {
+                var ed = getPageEditor(i);
+                if (ed) parts.push(ed.innerHTML);
+            }
+            return parts.join('<hr class="page-break"/>');
+            }
+
+            function sendUpdate(editorEl) {
+            var sel = window.getSelection();
+            var offset = 0;
+            if (sel && sel.rangeCount > 0) {
+                try {
+                var range = document.createRange();
+                range.setStart(editorEl, 0);
+                range.setEnd(sel.anchorNode, sel.anchorOffset);
+                offset = range.toString().length;
+                } catch(e) {}
+            }
+            document.title = '##CONTENT##' + offset + '|' + getAllContent();
+            }
+
+            function attachListeners(ed) {
+            var debounce;
+            var updateDebounce;
+
+            ed.addEventListener('input', function() {
+            clearTimeout(debounce);
+            debounce = setTimeout(function() {
+              checkPages();
+              clearTimeout(updateDebounce);
+              updateDebounce = setTimeout(function() { sendUpdate(ed); }, 150);
+            }, 120);
+          });
+
+            ed.addEventListener('keyup', function() {
+                clearTimeout(updateDebounce);
+                updateDebounce = setTimeout(function() { sendUpdate(ed); }, 300);
+            });
+
+            ed.addEventListener('mouseup', function() { sendUpdate(ed); });
+
+            ed.addEventListener('keydown', function(e) {
+                var sel = window.getSelection();
+                if (!sel || sel.rangeCount === 0) return;
+                var node = sel.anchorNode;
+                while (node && node !== ed) {
+                if (node.classList && node.classList.contains('remote-cursor')) {
+                    var range = document.createRange();
+                    range.setStartAfter(node);
+                    range.collapse(true);
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                    break;
+                }
+                node = node.parentNode;
+                }
+            }, true);
+
+            ed.addEventListener('input', function() {
+                document.querySelectorAll('.remote-cursor').forEach(function(el) {
+                Array.from(el.childNodes).forEach(function(child) {
+                    if (child.nodeType === Node.TEXT_NODE) {
+                    el.parentNode.insertBefore(child, el);
+                    }
+                });
+                });
+            }, true);
+            }
+
+            attachListeners(document.getElementById('editor'));
+            </script>
             </body>
             </html>
             """;
