@@ -24,6 +24,9 @@ public class EditorServer extends WebSocketServer {
     // conn → docId (so we know which room to leave on disconnect)
     private static final Map<WebSocket, Integer> connRoom = new ConcurrentHashMap<>();
 
+    // conflict tracking metadata
+    private static final Map<String, String> conflictMeta = new ConcurrentHashMap<>();
+
     public EditorServer(int port) {
         super(new InetSocketAddress(port));
     }
@@ -125,23 +128,68 @@ public class EditorServer extends WebSocketServer {
         Integer docId = connRoom.get(sender);
         if (docId == null) return;
 
-    String key = docId + ":" + pageIndex;
-    pageContents.put(key, html);
+        String key = docId + ":" + pageIndex;
+        long now = System.currentTimeMillis();
 
-    // Broadcast to room (exclude sender)
-    Set<WebSocket> room = rooms.get(docId);
-    if (room != null) {
-        synchronized (room) {
-            for (WebSocket client : room) {
-                if (client != sender && client.isOpen()) {
-                    client.send(message);
+        // ── Conflict detection ────────────────────────────────
+        // Check if another user edited this page within last 3 seconds
+        String lastEditKey  = key + ":lastEditUser";
+        String lastTimeKey  = key + ":lastEditTime";
+        String lastHtmlKey  = key + ":lastHtml";
+
+        String lastUser = conflictMeta.get(lastEditKey);
+        String lastTime = conflictMeta.get(lastTimeKey);
+        String lastHtml = conflictMeta.get(lastHtmlKey);
+
+        boolean conflict = lastUser != null
+            && !lastUser.equals(user)
+            && lastTime != null
+            && (now - Long.parseLong(lastTime)) < 3000
+            && lastHtml != null
+            && !lastHtml.equals(html);
+
+        // Update meta
+        conflictMeta.put(lastEditKey, user);
+        conflictMeta.put(lastTimeKey, String.valueOf(now));
+        conflictMeta.put(lastHtmlKey, html);
+
+        if (conflict) {
+            // Send conflict notice to ALL users in room
+            JsonObject cfMsg = new JsonObject();
+            cfMsg.addProperty("type", "conflict");
+            cfMsg.addProperty("pageIndex", pageIndex);
+            cfMsg.addProperty("versionA", lastHtml);      // previous user's version
+            cfMsg.addProperty("versionB", html);           // current user's version
+            cfMsg.addProperty("userA", lastUser);
+            cfMsg.addProperty("userB", user);
+
+            Set<WebSocket> room = rooms.get(docId);
+            if (room != null) {
+                synchronized (room) {
+                    for (WebSocket client : room) {
+                        if (client.isOpen()) client.send(cfMsg.toString());
+                    }
+                }
+            }
+            // Don't save yet — wait for resolution
+            return;
+        }
+
+        // No conflict — normal broadcast
+        pageContents.put(key, html);
+        Set<WebSocket> room = rooms.get(docId);
+        if (room != null) {
+            synchronized (room) {
+                for (WebSocket client : room) {
+                    if (client != sender && client.isOpen()) {
+                        client.send(message);
+                    }
                 }
             }
         }
+        DatabaseManager.savePage(docId, pageIndex, html, user);
+        return;
     }
-    DatabaseManager.savePage(docId, pageIndex, html, user);
-    return;
-}
 
     if (type.equals("page_switch")) {
         // One client switched page — send them that page's content
@@ -256,6 +304,40 @@ public class EditorServer extends WebSocketServer {
             }
             resp.add("comments", arr);
             sender.send(resp.toString());
+            return;
+        }
+
+        if (type.equals("conflict_resolve")) {
+            Integer docId = connRoom.get(sender);
+            if (docId == null) return;
+            int pageIndex   = msg.get("pageIndex").getAsInt();
+            String resolved = msg.get("resolvedHtml").getAsString();
+            String user     = msg.get("user").getAsString();
+
+            String key = docId + ":" + pageIndex;
+            pageContents.put(key, resolved);
+
+            // Clear conflict meta
+            conflictMeta.remove(key + ":lastEditUser");
+            conflictMeta.remove(key + ":lastEditTime");
+            conflictMeta.remove(key + ":lastHtml");
+
+            // Broadcast resolved version to all
+            JsonObject broadcast = new JsonObject();
+            broadcast.addProperty("type", "page_edit");
+            broadcast.addProperty("pageIndex", pageIndex);
+            broadcast.addProperty("html", resolved);
+            broadcast.addProperty("user", user + " (resolved conflict)");
+
+            Set<WebSocket> room = rooms.get(docId);
+            if (room != null) {
+                synchronized (room) {
+                    for (WebSocket client : room) {
+                        if (client.isOpen()) client.send(broadcast.toString());
+                    }
+                }
+            }
+            DatabaseManager.savePage(docId, pageIndex, resolved, user + " (resolved)");
             return;
         }
 

@@ -65,6 +65,20 @@ public class EditorBridge {
             return;
         }
 
+        if (type.equals("conflict")) {
+            int pageIndex  = msg.get("pageIndex").getAsInt();
+            String verA    = msg.get("versionA").getAsString();
+            String verB    = msg.get("versionB").getAsString();
+            String userA   = msg.get("userA").getAsString();
+            String userB   = msg.get("userB").getAsString();
+            // Show dialog on FX thread (already in Platform.runLater)
+            ConflictResolutionDialog dialog = new ConflictResolutionDialog(
+                pageIndex, verA, verB, userA, userB, EditorBridge.this
+            );
+            dialog.show();
+            return;
+        }
+
         if (type.equals("comment_add")) {
             if (commentPanel != null) commentPanel.addComment(msg);
             return;
@@ -186,5 +200,21 @@ public class EditorBridge {
     }
 
     public String getUsername() { return username; }
+
+    public void sendConflictResolution(int pageIndex, String resolvedHtml) {
+        if (client == null || !client.isOpen()) return;
+        JsonObject msg = new JsonObject();
+        msg.addProperty("type", "conflict_resolve");
+        msg.addProperty("pageIndex", pageIndex);
+        msg.addProperty("resolvedHtml", resolvedHtml);
+        msg.addProperty("user", username);
+        client.send(msg.toString());
+        // Also apply locally
+        Platform.runLater(() -> {
+            applyingRemote = true;
+            editorPane.applyPageContent(pageIndex, resolvedHtml);
+            applyingRemote = false;
+        });
+    }
 
 }
