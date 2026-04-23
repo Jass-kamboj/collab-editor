@@ -12,7 +12,9 @@ import javafx.scene.paint.Color;
 import javafx.scene.web.WebEngine;
 import javafx.scene.web.WebView;
 import javafx.util.Duration;
-
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -52,6 +54,25 @@ public class EditorPane {
     private static final String STRIP_BG     = "#f5f5f3";
     private static final String CANVAS_BG    = "#f0efe9";
     private static final String BORDER_COLOR = "#d3d1c7";
+
+    // ── Authorship palette (matches cursor colors) ────────────────
+    private static final String[] AUTHOR_COLORS = {
+        "rgba(229,57,53,0.13)",   "rgba(142,36,170,0.13)",
+        "rgba(30,136,229,0.13)",  "rgba(0,137,123,0.13)",
+        "rgba(244,81,30,0.13)",   "rgba(109,76,65,0.13)",
+        "rgba(0,172,193,0.13)",   "rgba(67,160,71,0.13)",
+        "rgba(251,140,0,0.13)",   "rgba(57,73,171,0.13)"
+    };
+    private static final String[] AUTHOR_BORDERS = {
+        "rgba(229,57,53,0.5)",    "rgba(142,36,170,0.5)",
+        "rgba(30,136,229,0.5)",   "rgba(0,137,123,0.5)",
+        "rgba(244,81,30,0.5)",    "rgba(109,76,65,0.5)",
+        "rgba(0,172,193,0.5)",    "rgba(67,160,71,0.5)",
+        "rgba(251,140,0,0.5)",    "rgba(57,73,171,0.5)"
+    };
+    // author → index in palette
+    private final java.util.Map<String, Integer> authorIndex = new java.util.LinkedHashMap<>();
+    private int nextAuthorIndex = 0;
 
     public EditorPane() {
         webView = new WebView();
@@ -404,6 +425,135 @@ public void init(EditorBridge bridge) {
                 }, 5000);
             })();
         """, safe, offset, safe, color, safe, color, safe, safe, safe));
+    }
+
+    public void applyAuthorship(JsonArray authors) {
+        if (authors == null) return;
+
+        // Build hash → {author, color, border} map
+        StringBuilder js = new StringBuilder("(function() {\n");
+        js.append("  var map = {};\n");
+
+        // Track contribution counts per author
+        java.util.Map<String, Integer> counts = new java.util.LinkedHashMap<>();
+
+        for (JsonElement el : authors) {
+            JsonObject a = el.getAsJsonObject();
+            String hash   = a.get("hash").getAsString();
+            String author = a.get("author").getAsString();
+            String time   = a.has("time") ? a.get("time").getAsString() : "";
+
+            // Assign stable color index per author
+            if (!authorIndex.containsKey(author)) {
+                authorIndex.put(author, nextAuthorIndex % AUTHOR_COLORS.length);
+                nextAuthorIndex++;
+            }
+            int idx = authorIndex.get(author);
+            String color  = AUTHOR_COLORS[idx];
+            String border = AUTHOR_BORDERS[idx];
+            String safeAuthor = author.replace("'", "\\'");
+            String safeTime = time.length() > 16 ? time.substring(0, 16) : time;
+
+            js.append("  map['").append(hash).append("'] = {")
+              .append("author:'").append(safeAuthor).append("',")
+              .append("color:'").append(color).append("',")
+              .append("border:'").append(border).append("',")
+              .append("time:'").append(safeTime).append("'")
+              .append("};\n");
+
+            counts.merge(author, 1, Integer::sum);
+        }
+
+        js.append("""
+              // Apply tints to all block elements
+              var editors = document.querySelectorAll('.page-editor, #editor');
+              editors.forEach(function(ed) {
+                var blocks = ed.querySelectorAll('p,div,h1,h2,h3,h4,h5,h6,li,td');
+                if (blocks.length === 0) {
+                  // plain text — wrap in range
+                  blocks = [ed];
+                }
+                blocks.forEach(function(block) {
+                  var text = block.innerText ? block.innerText.trim() : '';
+                  if (text.length < 5) return;
+                  var hash = String(hashCode(text));
+                  var info = map[hash];
+                  if (info) {
+                    block.style.backgroundColor = info.color;
+                    block.style.borderLeft = '3px solid ' + info.border;
+                    block.style.paddingLeft = '6px';
+                    block.title = '✍ ' + info.author + '  •  ' + info.time;
+                  }
+                });
+              });
+            
+              function hashCode(str) {
+                var h = 0;
+                for (var i = 0; i < str.length; i++) {
+                  h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
+                }
+                return h;
+              }
+            })();
+        """);
+
+        engine.executeScript(js.toString());
+
+        // ── Update contribution bar ───────────────────────────────
+        updateContributionBar(counts);
+    }
+
+    private void updateContributionBar(java.util.Map<String, Integer> counts) {
+        if (counts.isEmpty()) return;
+
+        int total = counts.values().stream().mapToInt(Integer::intValue).sum();
+
+        // Build the bar as a styled HBox — attach to bottom of root
+        javafx.scene.layout.HBox bar = new javafx.scene.layout.HBox(0);
+        bar.setPrefHeight(6);
+        bar.setMinHeight(6);
+        bar.setMaxHeight(6);
+        bar.setStyle("-fx-background-color: #e8e6df;");
+
+        javafx.scene.control.Tooltip barTip = new javafx.scene.control.Tooltip();
+        StringBuilder tipText = new StringBuilder("Contributions:\n");
+
+        for (java.util.Map.Entry<String, Integer> entry : counts.entrySet()) {
+            String author = entry.getKey();
+            int count = entry.getValue();
+            double pct = (double) count / total;
+
+            if (!authorIndex.containsKey(author)) {
+                authorIndex.put(author, nextAuthorIndex % AUTHOR_COLORS.length);
+                nextAuthorIndex++;
+            }
+            int idx = authorIndex.get(author);
+            // Convert rgba tint to solid color for the bar
+            String solid = CURSOR_COLORS[idx];
+
+            javafx.scene.layout.Region seg = new javafx.scene.layout.Region();
+            seg.setPrefHeight(6);
+            HBox.setHgrow(seg, javafx.scene.layout.Priority.NEVER);
+            seg.setPrefWidth(pct * 10000); // will be normalized by HBox
+            seg.setStyle("-fx-background-color: " + solid + ";");
+            bar.getChildren().add(seg);
+
+            tipText.append(String.format("  %s: %d%%\n",
+                author, (int)(pct * 100)));
+        }
+
+        barTip.setText(tipText.toString().trim());
+        javafx.scene.control.Tooltip.install(bar, barTip);
+
+        // Attach bar to bottom of root — replace if already there
+        if (root.getBottom() instanceof javafx.scene.layout.HBox existing
+                && existing.getId() != null
+                && existing.getId().equals("contrib-bar")) {
+            root.setBottom(bar);
+        } else {
+            root.setBottom(bar);
+        }
+        bar.setId("contrib-bar");
     }
 
     public String getContent() {

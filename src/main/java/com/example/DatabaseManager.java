@@ -3,7 +3,6 @@ package com.example;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
-import java.sql.Types;
 public class DatabaseManager {
 
     private static final String URL      = "jdbc:mysql://localhost:3306/collabeditor";
@@ -79,7 +78,19 @@ public class DatabaseManager {
             conn.createStatement().executeUpdate(createDocs);
             conn.createStatement().executeUpdate(createHistory);
             conn.createStatement().executeUpdate(createComments);
+
+            String createAuthorship = "CREATE TABLE IF NOT EXISTS paragraph_authors ("
+                    + "id INT AUTO_INCREMENT PRIMARY KEY, "
+                    + "doc_id INT NOT NULL, "
+                    + "page_index INT NOT NULL DEFAULT 0, "
+                    + "paragraph_hash VARCHAR(64) NOT NULL, "
+                    + "author VARCHAR(50) NOT NULL, "
+                    + "last_edited TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, "
+                    + "UNIQUE KEY unique_para (doc_id, page_index, paragraph_hash))";
+            conn.createStatement().executeUpdate(createAuthorship);
+
             System.out.println("Database initialized.");
+
           } catch (SQLException e) {
             System.err.println("DB init failed: " + e.getMessage());
         }
@@ -372,6 +383,48 @@ public class DatabaseManager {
             System.err.println("deleteComment failed: " + e.getMessage());
             return false;
         }
+    }
+
+    // ── Paragraph Authorship ──────────────────────────────────────
+    public static void saveParagraphAuthor(int docId, int pageIndex,
+                                            String paragraphHash, String author) {
+        String sql = "INSERT INTO paragraph_authors "
+                   + "(doc_id, page_index, paragraph_hash, author) VALUES (?, ?, ?, ?) "
+                   + "ON DUPLICATE KEY UPDATE author = ?, last_edited = CURRENT_TIMESTAMP";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setInt(1, docId);
+            stmt.setInt(2, pageIndex);
+            stmt.setString(3, paragraphHash);
+            stmt.setString(4, author);
+            stmt.setString(5, author);
+            stmt.executeUpdate();
+        } catch (SQLException e) {
+            System.err.println("saveParagraphAuthor failed: " + e.getMessage());
+        }
+    }
+
+    public static List<String[]> getParagraphAuthors(int docId, int pageIndex) {
+        // returns [paragraph_hash, author, last_edited]
+        List<String[]> list = new ArrayList<>();
+        String sql = "SELECT paragraph_hash, author, last_edited "
+                   + "FROM paragraph_authors WHERE doc_id = ? AND page_index = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setInt(1, docId);
+            stmt.setInt(2, pageIndex);
+            ResultSet rs = stmt.executeQuery();
+            while (rs.next()) {
+                list.add(new String[]{
+                    rs.getString("paragraph_hash"),
+                    rs.getString("author"),
+                    rs.getString("last_edited")
+                });
+            }
+        } catch (SQLException e) {
+            System.err.println("getParagraphAuthors failed: " + e.getMessage());
+        }
+        return list;
     }
 
 }

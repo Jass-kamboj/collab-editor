@@ -65,6 +65,15 @@ public class EditorBridge {
             return;
         }
 
+        if (type.equals("authorship_update")) {
+            int pageIndex = msg.get("pageIndex").getAsInt();
+            com.google.gson.JsonArray authors = msg.getAsJsonArray("authors");
+            if (pageIndex == editorPane.getCurrentPage()) {
+                editorPane.applyAuthorship(authors);
+            }
+            return;
+        }
+
         if (type.equals("conflict")) {
             int pageIndex  = msg.get("pageIndex").getAsInt();
             String verA    = msg.get("versionA").getAsString();

@@ -5,7 +5,7 @@ import com.google.gson.JsonParser;
 import org.java_websocket.WebSocket;
 import org.java_websocket.handshake.ClientHandshake;
 import org.java_websocket.server.WebSocketServer;
-import java.util.List;
+
 import java.net.InetSocketAddress;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -26,6 +26,9 @@ public class EditorServer extends WebSocketServer {
 
     // conflict tracking metadata
     private static final Map<String, String> conflictMeta = new ConcurrentHashMap<>();
+
+    // conn → username mapping
+    private static final Map<WebSocket, String> connUser = new ConcurrentHashMap<>();
 
     public EditorServer(int port) {
         super(new InetSocketAddress(port));
@@ -62,6 +65,10 @@ public class EditorServer extends WebSocketServer {
         if (type.equals("join")) {
             int docId = msg.get("docId").getAsInt();
             connRoom.put(sender, docId);
+
+            // Track username for this connection
+            if (msg.has("user")) connUser.put(sender, msg.get("user").getAsString());
+
             rooms.computeIfAbsent(docId, k -> Collections.synchronizedSet(new HashSet<>()))
                  .add(sender);
 
@@ -91,6 +98,25 @@ public class EditorServer extends WebSocketServer {
                 meta.addProperty("type", "pageMeta");
                 meta.addProperty("pageCount", pageCount);
                 sender.send(meta.toString());
+                
+                // Send existing authorship for page 0
+                List<String[]> authors = DatabaseManager.getParagraphAuthors(docId, 0);
+                if (!authors.isEmpty()) {
+                    JsonObject authMsg = new JsonObject();
+                    authMsg.addProperty("type", "authorship_update");
+                    authMsg.addProperty("pageIndex", 0);
+                    com.google.gson.JsonArray authArr = new com.google.gson.JsonArray();
+                    for (String[] a : authors) {
+                        JsonObject entry = new JsonObject();
+                        entry.addProperty("hash",   a[0]);
+                        entry.addProperty("author", a[1]);
+                        entry.addProperty("time",   a[2]);
+                        authArr.add(entry);
+                    }
+                    authMsg.add("authors", authArr);
+                    sender.send(authMsg.toString());
+                }
+
             return;
         }
         if (type.equals("restore")) {
@@ -121,7 +147,8 @@ public class EditorServer extends WebSocketServer {
     DatabaseManager.saveContent(docId, html, user + " (restored)");
     return;
     }
-if (type.equals("page_edit")) {
+
+    if (type.equals("page_edit")) {
         int pageIndex = msg.get("pageIndex").getAsInt();
         String html   = msg.get("html").getAsString();
         String user   = msg.get("user").getAsString();
@@ -205,6 +232,16 @@ if (type.equals("page_edit")) {
         conflictMeta.put(key + ":lastEditTime", String.valueOf(System.currentTimeMillis()));
         conflictMeta.put(key + ":lastEditHtml", html);
         DatabaseManager.savePage(docId, pageIndex, html, user);
+
+        // ── Track paragraph authorship ────────────────────────────
+        List<String> paragraphs = extractParagraphs(html);
+        for (String para : paragraphs) {
+            String hash = String.valueOf(para.hashCode());
+            DatabaseManager.saveParagraphAuthor(docId, pageIndex, hash, user);
+        }
+
+        // Broadcast authorship map to all clients in room
+        broadcastAuthorship(docId, pageIndex, room);
         return;
     }
 
@@ -422,4 +459,32 @@ if (type.equals("page_edit")) {
         }
         return result;
     }
+
+    private void broadcastAuthorship(int docId, int pageIndex, Set<WebSocket> room) {
+        List<String[]> authors = DatabaseManager.getParagraphAuthors(docId, pageIndex);
+        if (authors.isEmpty()) return;
+
+        JsonObject msg = new JsonObject();
+        msg.addProperty("type", "authorship_update");
+        msg.addProperty("pageIndex", pageIndex);
+
+        com.google.gson.JsonArray arr = new com.google.gson.JsonArray();
+        for (String[] a : authors) {
+            JsonObject entry = new JsonObject();
+            entry.addProperty("hash",    a[0]);
+            entry.addProperty("author",  a[1]);
+            entry.addProperty("time",    a[2]);
+            arr.add(entry);
+        }
+        msg.add("authors", arr);
+
+        if (room != null) {
+            synchronized (room) {
+                for (WebSocket client : room) {
+                    if (client.isOpen()) client.send(msg.toString());
+                }
+            }
+        }
+    }
+
 }
