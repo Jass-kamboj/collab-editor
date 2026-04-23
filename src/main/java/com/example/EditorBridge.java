@@ -12,6 +12,10 @@ public class EditorBridge {
     private boolean applyingRemote = false;
     private final String username;
 
+    private CommentPanel commentPanel;
+
+    public void setCommentPanel(CommentPanel panel) { this.commentPanel = panel; }
+
     public EditorBridge(EditorPane editorPane, String username, int docId) {
         this.editorPane = editorPane;
         this.username = username;
@@ -58,6 +62,19 @@ public class EditorBridge {
         if (type.equals("page_delete")) {
             int pageIndex = msg.get("pageIndex").getAsInt();
             editorPane.onPeerDeletedPage(pageIndex);
+            return;
+        }
+
+        if (type.equals("comment_add")) {
+            if (commentPanel != null) commentPanel.addComment(msg);
+            return;
+        }
+        if (type.equals("comment_delete")) {
+            if (commentPanel != null) commentPanel.removeComment(msg.get("commentId").getAsInt());
+            return;
+        }
+        if (type.equals("comments_load")) {
+            if (commentPanel != null) commentPanel.loadComments(msg.getAsJsonArray("comments"));
             return;
         }
 
@@ -139,4 +156,35 @@ public class EditorBridge {
         client.send(msg.toString());
     }
   }
+
+  // ── Comments ──────────────────────────────────────────────────
+    public void sendComment(String selectedText, String commentText, Integer parentId) {
+        if (client == null || !client.isOpen()) return;
+        JsonObject msg = new JsonObject();
+        msg.addProperty("type", "comment_add");
+        msg.addProperty("author", username);
+        msg.addProperty("selectedText", selectedText != null ? selectedText : "");
+        msg.addProperty("commentText", commentText);
+        if (parentId != null) msg.addProperty("parentId", parentId);
+        client.send(msg.toString());
+    }
+
+    public void deleteComment(int commentId) {
+        if (client == null || !client.isOpen()) return;
+        JsonObject msg = new JsonObject();
+        msg.addProperty("type", "comment_delete");
+        msg.addProperty("commentId", commentId);
+        msg.addProperty("author", username);
+        client.send(msg.toString());
+    }
+
+    public void loadComments() {
+        if (client == null || !client.isOpen()) return;
+        JsonObject msg = new JsonObject();
+        msg.addProperty("type", "comments_load");
+        client.send(msg.toString());
+    }
+
+    public String getUsername() { return username; }
+
 }

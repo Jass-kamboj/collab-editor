@@ -21,6 +21,7 @@ public class ToolbarController {
     private static final String BORDER       = "#d3d1c7";
     private static final String MUTED        = "#888780";
     private static final String TEXT         = "#2c2b27";
+    private CommentPanel commentPanel;
 
     public ToolbarController(EditorPane editor, EditorBridge bridge, Stage stage) {
 
@@ -226,6 +227,13 @@ public class ToolbarController {
         Button historyBtn = makeSecondaryBtn("🕐 History");
         historyBtn.setOnAction(e -> new VersionHistoryScreen(bridge).show());
 
+        // ── Comments ──────────────────────────────────────────────
+        commentPanel = new CommentPanel(bridge, editor);
+        bridge.setCommentPanel(commentPanel);
+        Button commentBtn = makeSecondaryBtn("💬 Comment");
+        
+        commentBtn.setOnAction(e -> commentPanel.togglePopup(stage));
+
         // ── Editing indicator pill ───────────────────────────────
         Label editingPill = editor.getEditingLabel();
 
@@ -262,8 +270,9 @@ public class ToolbarController {
         HBox right = new HBox(5,
             editingPill,
             makeDivider(),
-            zoomGroup,          // zoom sits RIGHT next to history — no gap
+            zoomGroup,
             makeDivider(),
+            commentBtn,
             historyBtn,
             saveBtn
         );
@@ -307,6 +316,8 @@ public class ToolbarController {
     }
 
     public HBox getToolbar() { return toolbar; }
+
+    public CommentPanel getCommentPanel() { return commentPanel; }
 
     // ── Button factories ─────────────────────────────────────────
 

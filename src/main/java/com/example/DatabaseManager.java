@@ -3,7 +3,7 @@ package com.example;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
-
+import java.sql.Types;
 public class DatabaseManager {
 
     private static final String URL      = "jdbc:mysql://localhost:3306/collabeditor";
@@ -65,12 +65,22 @@ public class DatabaseManager {
                 + "changed_by VARCHAR(50), "
                 + "saved_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)";
 
-        try (Connection conn = getConnection()) {
+        String createComments = "CREATE TABLE IF NOT EXISTS comments ("
+                + "id INT AUTO_INCREMENT PRIMARY KEY, "
+                + "doc_id INT NOT NULL, "
+                + "author VARCHAR(50) NOT NULL, "
+                + "selected_text TEXT, "
+                + "comment_text TEXT NOT NULL, "
+                + "parent_id INT DEFAULT NULL, "
+                + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)";
+
+            try (Connection conn = getConnection()) {
             conn.createStatement().executeUpdate(createUsers);
             conn.createStatement().executeUpdate(createDocs);
             conn.createStatement().executeUpdate(createHistory);
+            conn.createStatement().executeUpdate(createComments);
             System.out.println("Database initialized.");
-        } catch (SQLException e) {
+          } catch (SQLException e) {
             System.err.println("DB init failed: " + e.getMessage());
         }
     }
@@ -304,4 +314,64 @@ public class DatabaseManager {
             return false;
         }
     }
+
+// ── Comments ──────────────────────────────────────────────────
+    public static int addComment(int docId, String author, String selectedText, String commentText, Integer parentId) {
+        String sql = "INSERT INTO comments (doc_id, author, selected_text, comment_text, parent_id) VALUES (?, ?, ?, ?, ?)";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+            stmt.setInt(1, docId);
+            stmt.setString(2, author);
+            stmt.setString(3, selectedText);
+            stmt.setString(4, commentText);
+            if (parentId == null) stmt.setNull(5, Types.INTEGER);
+            else stmt.setInt(5, parentId);
+            stmt.executeUpdate();
+            ResultSet rs = stmt.getGeneratedKeys();
+            if (rs.next()) return rs.getInt(1);
+        } catch (SQLException e) {
+            System.err.println("addComment failed: " + e.getMessage());
+        }
+        return -1;
+    }
+
+    public static List<String[]> getComments(int docId) {
+        // returns [id, author, selected_text, comment_text, parent_id, created_at]
+        List<String[]> list = new ArrayList<>();
+        String sql = "SELECT id, author, selected_text, comment_text, parent_id, created_at "
+                   + "FROM comments WHERE doc_id = ? ORDER BY created_at ASC";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setInt(1, docId);
+            ResultSet rs = stmt.executeQuery();
+            while (rs.next()) {
+                list.add(new String[]{
+                    String.valueOf(rs.getInt("id")),
+                    rs.getString("author"),
+                    rs.getString("selected_text"),
+                    rs.getString("comment_text"),
+                    rs.getString("parent_id"),
+                    rs.getString("created_at")
+                });
+            }
+        } catch (SQLException e) {
+            System.err.println("getComments failed: " + e.getMessage());
+        }
+        return list;
+    }
+
+    public static boolean deleteComment(int commentId, String requestingUser) {
+        // Only author can delete
+        String sql = "DELETE FROM comments WHERE id = ? AND author = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setInt(1, commentId);
+            stmt.setString(2, requestingUser);
+            return stmt.executeUpdate() > 0;
+        } catch (SQLException e) {
+            System.err.println("deleteComment failed: " + e.getMessage());
+            return false;
+        }
+    }
+
 }

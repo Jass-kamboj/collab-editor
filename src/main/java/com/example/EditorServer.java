@@ -179,6 +179,86 @@ public class EditorServer extends WebSocketServer {
         }
         return;
     }
+    
+    if (type.equals("comment_add")) {
+            Integer docId = connRoom.get(sender);
+            if (docId == null) return;
+            String author       = msg.get("author").getAsString();
+            String selectedText = msg.has("selectedText") ? msg.get("selectedText").getAsString() : "";
+            String commentText  = msg.get("commentText").getAsString();
+            Integer parentId    = msg.has("parentId") && !msg.get("parentId").isJsonNull()
+                                  ? msg.get("parentId").getAsInt() : null;
+
+            int newId = DatabaseManager.addComment(docId, author, selectedText, commentText, parentId);
+            if (newId < 0) return;
+
+            // Broadcast to whole room including sender
+            JsonObject broadcast = new JsonObject();
+            broadcast.addProperty("type", "comment_add");
+            broadcast.addProperty("id", newId);
+            broadcast.addProperty("author", author);
+            broadcast.addProperty("selectedText", selectedText);
+            broadcast.addProperty("commentText", commentText);
+            if (parentId != null) broadcast.addProperty("parentId", parentId);
+            broadcast.addProperty("createdAt", new java.util.Date().toString());
+
+            Set<WebSocket> room = rooms.get(docId);
+            if (room != null) {
+                synchronized (room) {
+                    for (WebSocket client : room) {
+                        if (client.isOpen()) client.send(broadcast.toString());
+                    }
+                }
+            }
+            return;
+        }
+
+        if (type.equals("comment_delete")) {
+            Integer docId = connRoom.get(sender);
+            if (docId == null) return;
+            int commentId   = msg.get("commentId").getAsInt();
+            String reqUser  = msg.get("author").getAsString();
+
+            boolean deleted = DatabaseManager.deleteComment(commentId, reqUser);
+            if (!deleted) return; // not author — silently reject
+
+            JsonObject broadcast = new JsonObject();
+            broadcast.addProperty("type", "comment_delete");
+            broadcast.addProperty("commentId", commentId);
+
+            Set<WebSocket> room = rooms.get(docId);
+            if (room != null) {
+                synchronized (room) {
+                    for (WebSocket client : room) {
+                        if (client.isOpen()) client.send(broadcast.toString());
+                    }
+                }
+            }
+            return;
+        }
+
+        if (type.equals("comments_load")) {
+            Integer docId = connRoom.get(sender);
+            if (docId == null) return;
+            java.util.List<String[]> comments = DatabaseManager.getComments(docId);
+            JsonObject resp = new JsonObject();
+            resp.addProperty("type", "comments_load");
+            com.google.gson.JsonArray arr = new com.google.gson.JsonArray();
+            for (String[] c : comments) {
+                JsonObject obj = new JsonObject();
+                obj.addProperty("id",           c[0]);
+                obj.addProperty("author",        c[1]);
+                obj.addProperty("selectedText",  c[2]);
+                obj.addProperty("commentText",   c[3]);
+                obj.addProperty("parentId",      c[4]);
+                obj.addProperty("createdAt",     c[5]);
+                arr.add(obj);
+            }
+            resp.add("comments", arr);
+            sender.send(resp.toString());
+            return;
+        }
+
         if (type.equals("page_delete")) {
             Integer docId = connRoom.get(sender);
             if (docId == null) return;

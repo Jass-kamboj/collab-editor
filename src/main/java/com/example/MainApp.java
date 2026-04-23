@@ -5,6 +5,7 @@ import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.scene.control.Alert;
 import javafx.scene.control.ButtonType;
+
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
@@ -77,8 +78,9 @@ public class MainApp extends Application {
         toolbar.getToolbar().getChildren().add(0, homeBtn);
         toolbar.getToolbar().getChildren().add(1, homeDivider);
 
-        VBox root = new VBox(toolbar.getToolbar(), editorPane.getRoot());
-        VBox.setVgrow(editorPane.getRoot(), Priority.ALWAYS);
+       VBox root = new VBox(toolbar.getToolbar(), editorPane.getRoot());
+       VBox.setVgrow(editorPane.getRoot(), Priority.ALWAYS);
+
         root.setPadding(new Insets(0));
 
         if (stage.getScene() == null) {
