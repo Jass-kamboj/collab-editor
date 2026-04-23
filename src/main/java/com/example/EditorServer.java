@@ -5,7 +5,7 @@ import com.google.gson.JsonParser;
 import org.java_websocket.WebSocket;
 import org.java_websocket.handshake.ClientHandshake;
 import org.java_websocket.server.WebSocketServer;
-
+import java.util.List;
 import java.net.InetSocketAddress;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -121,62 +121,17 @@ public class EditorServer extends WebSocketServer {
     DatabaseManager.saveContent(docId, html, user + " (restored)");
     return;
     }
-    if (type.equals("page_edit")) {
+if (type.equals("page_edit")) {
         int pageIndex = msg.get("pageIndex").getAsInt();
         String html   = msg.get("html").getAsString();
         String user   = msg.get("user").getAsString();
         Integer docId = connRoom.get(sender);
         if (docId == null) return;
 
-        String key = docId + ":" + pageIndex;
-        long now = System.currentTimeMillis();
+        String key        = docId + ":" + pageIndex;
+        String lastHtml   = pageContents.get(key);
 
-        // ── Conflict detection ────────────────────────────────
-        // Check if another user edited this page within last 3 seconds
-        String lastEditKey  = key + ":lastEditUser";
-        String lastTimeKey  = key + ":lastEditTime";
-        String lastHtmlKey  = key + ":lastHtml";
-
-        String lastUser = conflictMeta.get(lastEditKey);
-        String lastTime = conflictMeta.get(lastTimeKey);
-        String lastHtml = conflictMeta.get(lastHtmlKey);
-
-        boolean conflict = lastUser != null
-            && !lastUser.equals(user)
-            && lastTime != null
-            && (now - Long.parseLong(lastTime)) < 3000
-            && lastHtml != null
-            && !lastHtml.equals(html);
-
-        // Update meta
-        conflictMeta.put(lastEditKey, user);
-        conflictMeta.put(lastTimeKey, String.valueOf(now));
-        conflictMeta.put(lastHtmlKey, html);
-
-        if (conflict) {
-            // Send conflict notice to ALL users in room
-            JsonObject cfMsg = new JsonObject();
-            cfMsg.addProperty("type", "conflict");
-            cfMsg.addProperty("pageIndex", pageIndex);
-            cfMsg.addProperty("versionA", lastHtml);      // previous user's version
-            cfMsg.addProperty("versionB", html);           // current user's version
-            cfMsg.addProperty("userA", lastUser);
-            cfMsg.addProperty("userB", user);
-
-            Set<WebSocket> room = rooms.get(docId);
-            if (room != null) {
-                synchronized (room) {
-                    for (WebSocket client : room) {
-                        if (client.isOpen()) client.send(cfMsg.toString());
-                    }
-                }
-            }
-            // Don't save yet — wait for resolution
-            return;
-        }
-
-        // No conflict — normal broadcast
-        pageContents.put(key, html);
+        // ── Always broadcast live to other users first ────────────
         Set<WebSocket> room = rooms.get(docId);
         if (room != null) {
             synchronized (room) {
@@ -187,6 +142,68 @@ public class EditorServer extends WebSocketServer {
                 }
             }
         }
+
+        // ── Check for a true paragraph-level conflict ─────────────
+        // A real conflict = same paragraph existed before, both users
+        // changed it to DIFFERENT text, and it can't be auto-merged
+        if (lastHtml != null && !lastHtml.equals(html)) {
+            String lastEditUser = conflictMeta.get(key + ":lastEditUser");
+            String lastEditTime = conflictMeta.get(key + ":lastEditTime");
+            String lastEditHtml = conflictMeta.get(key + ":lastEditHtml");
+            long now = System.currentTimeMillis();
+
+            if (lastEditUser != null
+                    && !lastEditUser.equals(user)
+                    && lastEditTime != null
+                    && (now - Long.parseLong(lastEditTime)) < 4000
+                    && lastEditHtml != null) {
+
+                // Extract plain paragraphs from each version
+                List<String> parasLast = extractParagraphs(lastEditHtml);
+                List<String> parasCurr = extractParagraphs(html);
+                List<String> parasBase = extractParagraphs(lastHtml);
+
+                // Find paragraphs where BOTH users changed the SAME base paragraph
+                // to DIFFERENT content
+                List<String> conflictedParas = new ArrayList<>();
+                for (int i = 0; i < parasBase.size(); i++) {
+                    String base = parasBase.get(i);
+                    String fromA = i < parasLast.size() ? parasLast.get(i) : "";
+                    String fromB = i < parasCurr.size() ? parasCurr.get(i) : "";
+                    // Both changed it AND they changed it differently
+                    if (!fromA.equals(base) && !fromB.equals(base) && !fromA.equals(fromB)) {
+                        conflictedParas.add("• " + base.substring(0, Math.min(60, base.length())));
+                    }
+                }
+
+                if (!conflictedParas.isEmpty()) {
+                    JsonObject cfMsg = new JsonObject();
+                    cfMsg.addProperty("type", "conflict");
+                    cfMsg.addProperty("pageIndex", pageIndex);
+                    cfMsg.addProperty("versionA", lastEditHtml);
+                    cfMsg.addProperty("versionB", html);
+                    cfMsg.addProperty("userA", lastEditUser);
+                    cfMsg.addProperty("userB", user);
+                    cfMsg.addProperty("conflictSummary",
+                        "These paragraphs were edited differently by both users:\n"
+                        + String.join("\n", conflictedParas));
+
+                    if (room != null) {
+                        synchronized (room) {
+                            for (WebSocket client : room) {
+                                if (client.isOpen()) client.send(cfMsg.toString());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Always save current version
+        pageContents.put(key, html);
+        conflictMeta.put(key + ":lastEditUser", user);
+        conflictMeta.put(key + ":lastEditTime", String.valueOf(System.currentTimeMillis()));
+        conflictMeta.put(key + ":lastEditHtml", html);
         DatabaseManager.savePage(docId, pageIndex, html, user);
         return;
     }
@@ -389,5 +406,20 @@ public class EditorServer extends WebSocketServer {
         EditorServer server = new EditorServer(8887);
         server.start();
         System.out.println("Collab Editor Server running on port 8887");
+    }
+
+    /**
+     * Returns how many characters differ between two HTML strings.
+     * Simple but effective — ignores minor cursor/span changes.
+     */ 
+     private List<String> extractParagraphs(String html) {
+        List<String> result = new ArrayList<>();
+        // Split on block-level tags
+        String[] blocks = html.split("(?i)</(p|div|h[1-6]|li|td)>");
+        for (String block : blocks) {
+            String text = block.replaceAll("<[^>]*>", "").trim();
+            if (text.length() > 10) result.add(text);
+        }
+        return result;
     }
 }
