@@ -217,6 +217,7 @@ Other clients receive JSON → EditorBridge.applyRemoteChange()
 - Full version history with username tracking
 - Late joiners get the full document instantly
 - Echo loop prevention
+- Comments to interact with other users working on the same document
 
 ---
 
