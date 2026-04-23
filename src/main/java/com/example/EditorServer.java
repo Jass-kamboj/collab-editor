@@ -98,7 +98,7 @@ public class EditorServer extends WebSocketServer {
                 meta.addProperty("type", "pageMeta");
                 meta.addProperty("pageCount", pageCount);
                 sender.send(meta.toString());
-                
+
                 // Send existing authorship for page 0
                 List<String[]> authors = DatabaseManager.getParagraphAuthors(docId, 0);
                 if (!authors.isEmpty()) {
@@ -236,7 +236,7 @@ public class EditorServer extends WebSocketServer {
         // ── Track paragraph authorship ────────────────────────────
         List<String> paragraphs = extractParagraphs(html);
         for (String para : paragraphs) {
-            String hash = String.valueOf(para.hashCode());
+            String hash = String.valueOf(jsHashCode(para));
             DatabaseManager.saveParagraphAuthor(docId, pageIndex, hash, user);
         }
 
@@ -451,13 +451,33 @@ public class EditorServer extends WebSocketServer {
      */ 
      private List<String> extractParagraphs(String html) {
         List<String> result = new ArrayList<>();
-        // Split on block-level tags
-        String[] blocks = html.split("(?i)</(p|div|h[1-6]|li|td)>");
+        // Split on block-level closing tags
+        String[] blocks = html.split("(?i)</(p|div|h[1-6]|li|td|br)>|<br\\s*/?>"); 
         for (String block : blocks) {
-            String text = block.replaceAll("<[^>]*>", "").trim();
-            if (text.length() > 10) result.add(text);
+            String text = block.replaceAll("<[^>]*>", "")
+                               .replaceAll("&nbsp;", " ")
+                               .replaceAll("\\s+", " ")
+                               .trim();
+            if (text.length() >= 3) result.add(text);
+        }
+        // Also handle case where entire content is plain text without tags
+        if (result.isEmpty()) {
+            String plain = html.replaceAll("<[^>]*>", "").trim();
+            if (plain.length() >= 3) result.add(plain);
         }
         return result;
+    }
+
+    /**
+     * Replicates JavaScript's hashCode so server and client produce identical hashes.
+     * Matches: for(var h=0,i=0;i<str.length;i++) h=(Math.imul(31,h)+charCodeAt(i))|0
+     */
+    private int jsHashCode(String str) {
+        int h = 0;
+        for (int i = 0; i < str.length(); i++) {
+            h = 31 * h + str.charAt(i);
+        }
+        return h;
     }
 
     private void broadcastAuthorship(int docId, int pageIndex, Set<WebSocket> room) {

@@ -57,18 +57,18 @@ public class EditorPane {
 
     // ── Authorship palette (matches cursor colors) ────────────────
     private static final String[] AUTHOR_COLORS = {
-        "rgba(229,57,53,0.13)",   "rgba(142,36,170,0.13)",
-        "rgba(30,136,229,0.13)",  "rgba(0,137,123,0.13)",
-        "rgba(244,81,30,0.13)",   "rgba(109,76,65,0.13)",
-        "rgba(0,172,193,0.13)",   "rgba(67,160,71,0.13)",
-        "rgba(251,140,0,0.13)",   "rgba(57,73,171,0.13)"
+        "rgba(229,57,53,0.07)",   "rgba(142,36,170,0.07)",
+        "rgba(30,136,229,0.07)",  "rgba(0,137,123,0.07)",
+        "rgba(244,81,30,0.07)",   "rgba(109,76,65,0.07)",
+        "rgba(0,172,193,0.07)",   "rgba(67,160,71,0.07)",
+        "rgba(251,140,0,0.07)",   "rgba(57,73,171,0.07)"
     };
     private static final String[] AUTHOR_BORDERS = {
-        "rgba(229,57,53,0.5)",    "rgba(142,36,170,0.5)",
-        "rgba(30,136,229,0.5)",   "rgba(0,137,123,0.5)",
-        "rgba(244,81,30,0.5)",    "rgba(109,76,65,0.5)",
-        "rgba(0,172,193,0.5)",    "rgba(67,160,71,0.5)",
-        "rgba(251,140,0,0.5)",    "rgba(57,73,171,0.5)"
+        "rgba(229,57,53,0.35)",   "rgba(142,36,170,0.35)",
+        "rgba(30,136,229,0.35)",  "rgba(0,137,123,0.35)",
+        "rgba(244,81,30,0.35)",   "rgba(109,76,65,0.35)",
+        "rgba(0,172,193,0.35)",   "rgba(67,160,71,0.35)",
+        "rgba(251,140,0,0.35)",   "rgba(57,73,171,0.35)"
     };
     // author → index in palette
     private final java.util.Map<String, Integer> authorIndex = new java.util.LinkedHashMap<>();
@@ -465,24 +465,40 @@ public void init(EditorBridge bridge) {
         }
 
         js.append("""
-              // Apply tints to all block elements
+              // First clear all previous authorship tints
+              document.querySelectorAll('[data-author-tint]').forEach(function(el) {
+                el.style.backgroundColor = '';
+                el.style.borderLeft = '';
+                el.style.paddingLeft = '';
+                el.title = '';
+                el.removeAttribute('data-author-tint');
+              });
+
+              // Apply tints ONLY to leaf-level block elements with real text
               var editors = document.querySelectorAll('.page-editor, #editor');
               editors.forEach(function(ed) {
-                var blocks = ed.querySelectorAll('p,div,h1,h2,h3,h4,h5,h6,li,td');
-                if (blocks.length === 0) {
-                  // plain text — wrap in range
-                  blocks = [ed];
-                }
+                // Only direct block children — not the editor div itself
+                var blocks = Array.from(ed.children).filter(function(el) {
+                  var tag = el.tagName.toLowerCase();
+                  return ['p','h1','h2','h3','h4','h5','h6','li','td','div'].includes(tag)
+                    && !el.classList.contains('page-editor')
+                    && !el.classList.contains('page-wrap');
+                });
+
                 blocks.forEach(function(block) {
-                  var text = block.innerText ? block.innerText.trim() : '';
-                  if (text.length < 5) return;
+                  // Get ALL text content of the block
+                  var text = block.innerText ? block.innerText.trim() : block.textContent.trim();
+                  if (text.length < 3) return;
+
                   var hash = String(hashCode(text));
                   var info = map[hash];
                   if (info) {
                     block.style.backgroundColor = info.color;
-                    block.style.borderLeft = '3px solid ' + info.border;
-                    block.style.paddingLeft = '6px';
+                    block.style.borderLeft = '2px solid ' + info.border;
+                    block.style.paddingLeft = '8px';
+                    block.style.borderRadius = '2px';
                     block.title = '✍ ' + info.author + '  •  ' + info.time;
+                    block.setAttribute('data-author-tint', info.author);
                   }
                 });
               });
@@ -490,7 +506,7 @@ public void init(EditorBridge bridge) {
               function hashCode(str) {
                 var h = 0;
                 for (var i = 0; i < str.length; i++) {
-                  h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
+                  h = 31 * h + str.charCodeAt(i);
                 }
                 return h;
               }
