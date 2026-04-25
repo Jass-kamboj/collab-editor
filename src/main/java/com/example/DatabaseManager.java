@@ -5,9 +5,9 @@ import java.util.ArrayList;
 import java.util.List;
 public class DatabaseManager {
 
-    private static final String URL      = "jdbc:mysql://localhost:3306/collabeditor";
-    private static final String USER     = "root";
-    private static final String PASSWORD = "Kamboj@14767";
+    private static final String URL      = System.getenv("DB_URL")      != null ? System.getenv("DB_URL")      : "jdbc:mysql://localhost:3306/collabeditor";
+private static final String USER     = System.getenv("DB_USER")     != null ? System.getenv("DB_USER")     : "root";
+private static final String PASSWORD = System.getenv("DB_PASSWORD") != null ? System.getenv("DB_PASSWORD") : "Kamboj@14767";
 
     private static Connection getConnection() throws SQLException {
         return DriverManager.getConnection(URL, USER, PASSWORD);
