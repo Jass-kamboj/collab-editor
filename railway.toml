@@ -1,0 +1,7 @@
+[build]
+builder = "NIXPACKS"
+buildCommand = "mvn -B -DskipTests clean package"
+
+[deploy]
+startCommand = "java -jar target/collab-server.jar"
+restartPolicyType = "ON_FAILURE"
