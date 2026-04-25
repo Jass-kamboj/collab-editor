@@ -135,7 +135,14 @@ public class ConflictResolutionDialog {
             stage.close();
         });
 
-        HBox btnRow = new HBox(12, keepA, keepB, keepMerge);
+        Button keepLatest = makeChoiceBtn(
+            "🕐 Keep Most Recent", "#37474F", "#ECEFF1", "#37474F");
+        keepLatest.setOnAction(e -> {
+            bridge.sendConflictResolution(pageIndex, versionB);
+            stage.close();
+        });
+
+        HBox btnRow = new HBox(12, keepA, keepB, keepMerge, keepLatest);
         btnRow.setAlignment(Pos.CENTER);
         btnRow.setPadding(new Insets(12, 16, 16, 16));
         btnRow.setStyle(

@@ -506,7 +506,7 @@ public void init(EditorBridge bridge) {
               function hashCode(str) {
                 var h = 0;
                 for (var i = 0; i < str.length; i++) {
-                  h = 31 * h + str.charCodeAt(i);
+                  h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
                 }
                 return h;
               }

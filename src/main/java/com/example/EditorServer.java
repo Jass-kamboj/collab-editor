@@ -156,9 +156,40 @@ public class EditorServer extends WebSocketServer {
         if (docId == null) return;
 
         String key        = docId + ":" + pageIndex;
-        String lastHtml   = pageContents.get(key);
+        String lastHtml   = pageContents.get(key); // what was there BEFORE this edit
 
-        // ── Always broadcast live to other users first ────────────
+        // ── Snapshot base BEFORE any edits if this is a new editing session ──
+        String lastEditUser = conflictMeta.get(key + ":lastEditUser");
+        String lastEditTime = conflictMeta.get(key + ":lastEditTime");
+        long now = System.currentTimeMillis();
+        boolean freshSession = lastEditUser == null
+            || (now - Long.parseLong(lastEditTime != null ? lastEditTime : "0")) > 30000;
+
+        if (freshSession) {
+            // No one was editing — snapshot current as the clean base
+            conflictMeta.put(key + ":baseHtml", lastHtml != null ? lastHtml : html);
+            conflictMeta.remove(key + ":versionA_user");
+            conflictMeta.remove(key + ":versionA_html");
+            conflictMeta.remove(key + ":versionB_user");
+            conflictMeta.remove(key + ":versionB_html");
+        }
+
+        // ── Store this user's latest version separately ───────────
+        String slotA_user = conflictMeta.get(key + ":versionA_user");
+        if (slotA_user == null) {
+            // First user editing — assign them slot A
+            conflictMeta.put(key + ":versionA_user", user);
+            conflictMeta.put(key + ":versionA_html", html);
+        } else if (slotA_user.equals(user)) {
+            // Same user updating their version
+            conflictMeta.put(key + ":versionA_html", html);
+        } else {
+            // Different user — assign slot B
+            conflictMeta.put(key + ":versionB_user", user);
+            conflictMeta.put(key + ":versionB_html", html);
+        }
+
+        // ── Broadcast live to others FIRST (before conflict check) ─
         Set<WebSocket> room = rooms.get(docId);
         if (room != null) {
             synchronized (room) {
@@ -170,77 +201,81 @@ public class EditorServer extends WebSocketServer {
             }
         }
 
-        // ── Check for a true paragraph-level conflict ─────────────
-        // A real conflict = same paragraph existed before, both users
-        // changed it to DIFFERENT text, and it can't be auto-merged
-        if (lastHtml != null && !lastHtml.equals(html)) {
-            String lastEditUser = conflictMeta.get(key + ":lastEditUser");
-            String lastEditTime = conflictMeta.get(key + ":lastEditTime");
-            String lastEditHtml = conflictMeta.get(key + ":lastEditHtml");
-            long now = System.currentTimeMillis();
+        // ── Check for true conflict ───────────────────────────────
+        String versionA_user = conflictMeta.get(key + ":versionA_user");
+        String versionA_html = conflictMeta.get(key + ":versionA_html");
+        String versionB_user = conflictMeta.get(key + ":versionB_user");
+        String versionB_html = conflictMeta.get(key + ":versionB_html");
+        String baseHtml      = conflictMeta.get(key + ":baseHtml");
 
-            if (lastEditUser != null
-                    && !lastEditUser.equals(user)
-                    && lastEditTime != null
-                    && (now - Long.parseLong(lastEditTime)) < 4000
-                    && lastEditHtml != null) {
+        boolean twoUsersEditing = versionA_user != null && versionB_user != null
+            && versionA_html != null && versionB_html != null
+            && !versionA_html.equals(versionB_html);
 
-                // Extract plain paragraphs from each version
-                List<String> parasLast = extractParagraphs(lastEditHtml);
-                List<String> parasCurr = extractParagraphs(html);
-                List<String> parasBase = extractParagraphs(lastHtml);
+        boolean recentConflict = lastEditUser != null
+            && !lastEditUser.equals(user)
+            && lastEditTime != null
+            && (now - Long.parseLong(lastEditTime)) < 8000;
 
-                // Find paragraphs where BOTH users changed the SAME base paragraph
-                // to DIFFERENT content
-                List<String> conflictedParas = new ArrayList<>();
-                for (int i = 0; i < parasBase.size(); i++) {
-                    String base = parasBase.get(i);
-                    String fromA = i < parasLast.size() ? parasLast.get(i) : "";
-                    String fromB = i < parasCurr.size() ? parasCurr.get(i) : "";
-                    // Both changed it AND they changed it differently
-                    if (!fromA.equals(base) && !fromB.equals(base) && !fromA.equals(fromB)) {
-                        conflictedParas.add("• " + base.substring(0, Math.min(60, base.length())));
-                    }
+        if (twoUsersEditing && recentConflict && baseHtml != null) {
+            // Compare both versions against base
+            List<String> parasBase = extractParagraphs(baseHtml);
+            List<String> parasA    = extractParagraphs(versionA_html);
+            List<String> parasB    = extractParagraphs(versionB_html);
+
+            List<String> conflictedParas = new ArrayList<>();
+            for (int i = 0; i < parasBase.size(); i++) {
+                String base  = parasBase.get(i);
+                String fromA = i < parasA.size() ? parasA.get(i) : "";
+                String fromB = i < parasB.size() ? parasB.get(i) : "";
+                if (!fromA.equals(base) && !fromB.equals(base)
+                        && !fromA.equals(fromB)
+                        && fromA.length() > 2 && fromB.length() > 2) {
+                    conflictedParas.add("• " + base.substring(0, Math.min(60, base.length())));
                 }
+            }
 
-                if (!conflictedParas.isEmpty()) {
-                    JsonObject cfMsg = new JsonObject();
-                    cfMsg.addProperty("type", "conflict");
-                    cfMsg.addProperty("pageIndex", pageIndex);
-                    cfMsg.addProperty("versionA", lastEditHtml);
-                    cfMsg.addProperty("versionB", html);
-                    cfMsg.addProperty("userA", lastEditUser);
-                    cfMsg.addProperty("userB", user);
-                    cfMsg.addProperty("conflictSummary",
-                        "These paragraphs were edited differently by both users:\n"
-                        + String.join("\n", conflictedParas));
+            if (!conflictedParas.isEmpty()) {
+                JsonObject cfMsg = new JsonObject();
+                cfMsg.addProperty("type", "conflict");
+                cfMsg.addProperty("pageIndex", pageIndex);
+                cfMsg.addProperty("versionA", versionA_html);
+                cfMsg.addProperty("versionB", versionB_html);
+                cfMsg.addProperty("userA", versionA_user);
+                cfMsg.addProperty("userB", versionB_user);
+                cfMsg.addProperty("conflictSummary",
+                    "These paragraphs were edited differently:\n"
+                    + String.join("\n", conflictedParas));
 
-                    if (room != null) {
-                        synchronized (room) {
-                            for (WebSocket client : room) {
-                                if (client.isOpen()) client.send(cfMsg.toString());
-                            }
+                if (room != null) {
+                    synchronized (room) {
+                        for (WebSocket client : room) {
+                            if (client.isOpen()) client.send(cfMsg.toString());
                         }
                     }
                 }
+
+                // Clear slots so conflict doesn't re-fire immediately
+                conflictMeta.remove(key + ":versionA_user");
+                conflictMeta.remove(key + ":versionA_html");
+                conflictMeta.remove(key + ":versionB_user");
+                conflictMeta.remove(key + ":versionB_html");
             }
         }
 
-        // Always save current version
+        // ── Always update tracking + save ─────────────────────────
         pageContents.put(key, html);
         conflictMeta.put(key + ":lastEditUser", user);
-        conflictMeta.put(key + ":lastEditTime", String.valueOf(System.currentTimeMillis()));
-        conflictMeta.put(key + ":lastEditHtml", html);
+        conflictMeta.put(key + ":lastEditTime", String.valueOf(now));
+
         DatabaseManager.savePage(docId, pageIndex, html, user);
 
-        // ── Track paragraph authorship ────────────────────────────
+        // Track authorship
         List<String> paragraphs = extractParagraphs(html);
         for (String para : paragraphs) {
-            String hash = String.valueOf(jsHashCode(para));
-            DatabaseManager.saveParagraphAuthor(docId, pageIndex, hash, user);
+            DatabaseManager.saveParagraphAuthor(docId, pageIndex,
+                String.valueOf(jsHashCode(para)), user);
         }
-
-        // Broadcast authorship map to all clients in room
         broadcastAuthorship(docId, pageIndex, room);
         return;
     }
@@ -374,7 +409,11 @@ public class EditorServer extends WebSocketServer {
             // Clear conflict meta
             conflictMeta.remove(key + ":lastEditUser");
             conflictMeta.remove(key + ":lastEditTime");
-            conflictMeta.remove(key + ":lastHtml");
+            conflictMeta.remove(key + ":baseHtml");
+            conflictMeta.remove(key + ":versionA_user");
+            conflictMeta.remove(key + ":versionA_html");
+            conflictMeta.remove(key + ":versionB_user");
+            conflictMeta.remove(key + ":versionB_html");
 
             // Broadcast resolved version to all
             JsonObject broadcast = new JsonObject();
@@ -475,7 +514,10 @@ public class EditorServer extends WebSocketServer {
     private int jsHashCode(String str) {
         int h = 0;
         for (int i = 0; i < str.length(); i++) {
-            h = 31 * h + str.charAt(i);
+            h = (31 * h + str.charAt(i));
+            // Replicate JS (x | 0) — force 32-bit signed integer overflow
+            h = (int)(h & 0xFFFFFFFFL);
+            if (h > Integer.MAX_VALUE) h = (int)(h - 0x100000000L);
         }
         return h;
     }
