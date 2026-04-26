@@ -79,15 +79,24 @@ private static final String PASSWORD = System.getenv("DB_PASSWORD") != null ? Sy
             conn.createStatement().executeUpdate(createHistory);
             conn.createStatement().executeUpdate(createComments);
 
-            String createAuthorship = "CREATE TABLE IF NOT EXISTS paragraph_authors ("
+            String createPages = "CREATE TABLE IF NOT EXISTS pages ("
                     + "id INT AUTO_INCREMENT PRIMARY KEY, "
                     + "doc_id INT NOT NULL, "
                     + "page_index INT NOT NULL DEFAULT 0, "
-                    + "paragraph_hash VARCHAR(64) NOT NULL, "
-                    + "author VARCHAR(50) NOT NULL, "
-                    + "last_edited TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, "
-                    + "UNIQUE KEY unique_para (doc_id, page_index, paragraph_hash))";
-            conn.createStatement().executeUpdate(createAuthorship);
+                    + "content LONGTEXT, "
+                    + "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, "
+                    + "UNIQUE KEY unique_page (doc_id, page_index))";
+            conn.createStatement().executeUpdate(createPages);
+
+                        String createAuthorship = "CREATE TABLE IF NOT EXISTS paragraph_authors ("
+                                + "id INT AUTO_INCREMENT PRIMARY KEY, "
+                                + "doc_id INT NOT NULL, "
+                                + "page_index INT NOT NULL DEFAULT 0, "
+                                + "paragraph_hash VARCHAR(64) NOT NULL, "
+                                + "author VARCHAR(50) NOT NULL, "
+                                + "last_edited TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, "
+                                + "UNIQUE KEY unique_para (doc_id, page_index, paragraph_hash))";
+                        conn.createStatement().executeUpdate(createAuthorship);
 
             System.out.println("Database initialized.");
 
