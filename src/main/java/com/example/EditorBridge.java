@@ -153,7 +153,7 @@ public class EditorBridge {
 
     public void connectWebSocket() {
         try {
-            client = new EditorClient("ws://localhost:8887", this, docId);
+            client = new EditorClient("wss://worker-production-8a6c.up.railway.app", this, docId);
             client.connect();
             System.out.println("WebSocket connecting...");
         } catch (Exception e) {
